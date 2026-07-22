@@ -1,0 +1,51 @@
+{
+  "name": "masterskills",
+  "version": "0.1.0",
+  "description": "Private skill registry for AI coding agents. Install once, log in once — your agent does the rest.",
+  "type": "module",
+  "bin": {
+    "masterskills": "./dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "pnpm build"
+  },
+  "keywords": [
+    "ai",
+    "agents",
+    "agent-skills",
+    "skills",
+    "skill-md",
+    "claude-code",
+    "mcp",
+    "registry",
+    "private-registry"
+  ],
+  "author": "Yasin Torun",
+  "license": "MIT",
+  "homepage": "https://masterskills.dev",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/masterskills-dev/masterskills.git"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "commander": "^15.0.0",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@types/node": "^26.1.1",
+    "tsup": "^8.5.1",
+    "typescript": "^7.0.2"
+  }
+}
