@@ -8,37 +8,48 @@ import { sha256Hex, type TarEntry } from "../lib/tar.js";
 /**
  * `masterskills install` — one-time setup.
  *
- * Distributes the bundled "masterskills" skill (skill/SKILL.md in this
- * package) into every detected agent via the central store + links — the same
- * mechanism used for registry skills. The skill teaches agents to drive this
- * CLI, which replaces the parked MCP server as the agent interface.
+ * Distributes every bundled skill (skills/<slug>/ in this package, e.g.
+ * skills/cli) into every detected agent via the central store + links — the
+ * same mechanism used for registry skills. skills/cli teaches agents to drive
+ * this CLI, which replaces the parked MCP server as the agent interface.
+ * Future bundled skills (e.g. skills/docs) install automatically too.
  */
 
-const META_SKILL = { org: "masterskills", slug: "cli" };
+const BUNDLED_ORG = "masterskills";
 
-function bundledSkillDir(): string {
-  // dist/cli.js → ../skill (the folder ships in the npm package "files").
-  return join(fileURLToPath(import.meta.url), "..", "..", "skill");
+function bundledSkillsRoot(): string {
+  // dist/cli.js → ../skills (the folder ships in the npm package "files").
+  return join(fileURLToPath(import.meta.url), "..", "..", "skills");
 }
 
-function readBundledSkill(): TarEntry[] {
-  const root = bundledSkillDir();
-  const entries: TarEntry[] = [];
-  const walk = (relative: string) => {
-    for (const entry of readdirSync(join(root, relative), { withFileTypes: true })) {
-      const relPath = relative ? `${relative}/${entry.name}` : entry.name;
-      if (entry.isDirectory()) walk(relPath);
-      else if (entry.isFile()) {
-        const content = readFileSync(join(root, relPath));
-        entries.push({ path: relPath, size: content.length, sha256: sha256Hex(content), content });
+function readBundledSkills(): { slug: string; entries: TarEntry[] }[] {
+  const root = bundledSkillsRoot();
+  const bundled: { slug: string; entries: TarEntry[] }[] = [];
+
+  for (const dirent of readdirSync(root, { withFileTypes: true })) {
+    if (!dirent.isDirectory()) continue;
+    const slug = dirent.name;
+    const entries: TarEntry[] = [];
+    const walk = (relative: string) => {
+      for (const entry of readdirSync(join(root, slug, relative), { withFileTypes: true })) {
+        const relPath = relative ? `${relative}/${entry.name}` : entry.name;
+        if (entry.isDirectory()) walk(relPath);
+        else if (entry.isFile()) {
+          const content = readFileSync(join(root, slug, relPath));
+          entries.push({ path: relPath, size: content.length, sha256: sha256Hex(content), content });
+        }
       }
+    };
+    walk("");
+    if (entries.some((entry) => entry.path === "SKILL.md")) {
+      bundled.push({ slug, entries });
     }
-  };
-  walk("");
-  if (!entries.some((entry) => entry.path === "SKILL.md")) {
-    throw new Error("Bundled skill is missing SKILL.md — broken package?");
   }
-  return entries;
+
+  if (bundled.length === 0) {
+    throw new Error("No bundled skills found — broken package?");
+  }
+  return bundled;
 }
 
 export async function installCommand(): Promise<void> {
@@ -52,15 +63,16 @@ export async function installCommand(): Promise<void> {
     return;
   }
 
-  const entries = readBundledSkill();
-  writeSkillToStore(META_SKILL, entries);
-
-  for (const agent of agents) {
-    const outcome = linkSkillToAgent(META_SKILL, agent, { owned: true });
-    if (outcome.mode === "skipped") {
-      console.log(`- ${agent.displayName}: SKIPPED (${outcome.reason})`);
-    } else {
-      console.log(`✓ ${agent.displayName}: masterskills skill installed (${outcome.mode})`);
+  for (const bundledSkill of readBundledSkills()) {
+    const name = { org: BUNDLED_ORG, slug: bundledSkill.slug };
+    writeSkillToStore(name, bundledSkill.entries);
+    for (const agent of agents) {
+      const outcome = linkSkillToAgent(name, agent, { owned: true });
+      if (outcome.mode === "skipped") {
+        console.log(`- ${agent.displayName}: @${name.org}/${name.slug} SKIPPED (${outcome.reason})`);
+      } else {
+        console.log(`✓ ${agent.displayName}: @${name.org}/${name.slug} installed (${outcome.mode})`);
+      }
     }
   }
 
