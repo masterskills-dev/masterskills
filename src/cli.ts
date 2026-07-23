@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 import { Command } from "commander";
-import { loginCommand, logoutCommand, whoamiCommand } from "./commands/auth.js";
+import { logoutCommand, whoamiCommand } from "./commands/auth.js";
 import { installCommand } from "./commands/install.js";
+import { loginCommand } from "./commands/login.js";
 import { runMcpServer } from "./mcp/server.js";
 
 const program = new Command();
@@ -21,6 +22,8 @@ program
 program
   .command("login")
   .description("Authorize this device (opens your browser once)")
+  .option("--api-url <url>", "MasterSkills server URL (self-hosted or dev)")
+  .option("--no-open", "Don't open the browser automatically")
   .action(loginCommand);
 
 program

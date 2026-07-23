@@ -1,18 +1,10 @@
+import { api, ApiError } from "../api/client.js";
 import { clearConfig, loadConfig } from "../config.js";
 
-/**
- * `masterskills login` — device authorization flow.
- *
- * Planned flow (v1 contract: cloud/docs/API.md):
- *  1. POST /device/code → { device_code, user_code, verification_uri, interval }
- *  2. Open browser at verification_uri; user approves this device once.
- *  3. Poll POST /device/token until approved → lifetime device token (per machine).
- *  4. Save token via saveConfig(); OS keychain support comes later.
- */
-export async function loginCommand(): Promise<void> {
-  // TODO(v1): implement device flow against the cloud API.
-  console.log("masterskills login — not implemented yet.");
-  process.exitCode = 1;
+interface MeResponse {
+  user: { id: string; name: string; email: string } | null;
+  org: { id: string; slug: string; name: string; plan: string } | null;
+  device: { id: string; name: string; lastSeenAt: string | null };
 }
 
 export async function logoutCommand(): Promise<void> {
@@ -28,7 +20,18 @@ export async function whoamiCommand(): Promise<void> {
     process.exitCode = 1;
     return;
   }
-  // TODO(v1): call GET /me and print user, org, plan, device.
-  console.log(`Signed in${config.userEmail ? ` as ${config.userEmail}` : ""}.`);
-  if (config.orgSlug) console.log(`Organization: ${config.orgSlug}`);
+
+  try {
+    const me = await api<MeResponse>("/me");
+    if (me.user) console.log(`User:         ${me.user.name} <${me.user.email}>`);
+    if (me.org) console.log(`Organization: ${me.org.name} (${me.org.slug}) — ${me.org.plan} plan`);
+    console.log(`Device:       ${me.device.name}`);
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 401) {
+      console.error("This device's access is invalid or was revoked. Run: masterskills login");
+      process.exitCode = 1;
+      return;
+    }
+    throw error;
+  }
 }
