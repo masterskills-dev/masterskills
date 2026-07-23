@@ -3,6 +3,7 @@ import {
   existsSync,
   lstatSync,
   mkdirSync,
+  readdirSync,
   rmdirSync,
   rmSync,
   symlinkSync,
@@ -12,13 +13,14 @@ import {
 import { dirname, join } from "node:path";
 import type { AgentDefinition } from "../agents/registry.js";
 import { CONFIG_DIR } from "../config.js";
+import { linkFolderName, type SkillName } from "./names.js";
 import { isSafeRelativePath, type TarEntry } from "./tar.js";
 
 /**
- * Central skill store: ~/.masterskills/skills/<slug> is the ONLY real copy.
- * Agent dirs get links into the store, so one download serves every agent and
- * updates land everywhere at once (links are path-based — rewriting the store
- * folder's contents updates all agents implicitly).
+ * Central skill store: ~/.masterskills/skills/<org>/<slug> is the ONLY real
+ * copy. Agent dirs get links into the store, so one download serves every
+ * agent and updates land everywhere at once (links are path-based — rewriting
+ * the store folder's contents updates all agents implicitly).
  *
  * Link strategy per platform:
  *  - Windows: directory JUNCTION (no admin rights / Developer Mode needed,
@@ -34,12 +36,12 @@ export function storeRoot(): string {
   return join(CONFIG_DIR, "skills");
 }
 
-export function storeSkillDir(slug: string): string {
-  return join(storeRoot(), slug);
+export function storeSkillDir(name: SkillName): string {
+  return join(storeRoot(), name.org, name.slug);
 }
 
-export function writeSkillToStore(slug: string, entries: TarEntry[]): string {
-  const target = storeSkillDir(slug);
+export function writeSkillToStore(name: SkillName, entries: TarEntry[]): string {
+  const target = storeSkillDir(name);
   for (const entry of entries) {
     if (!isSafeRelativePath(entry.path)) {
       throw new Error(`Unsafe path in package: ${entry.path}`);
@@ -55,8 +57,15 @@ export function writeSkillToStore(slug: string, entries: TarEntry[]): string {
   return target;
 }
 
-export function removeSkillFromStore(slug: string): void {
-  rmSync(storeSkillDir(slug), { recursive: true, force: true });
+export function removeSkillFromStore(name: SkillName): void {
+  rmSync(storeSkillDir(name), { recursive: true, force: true });
+  // Tidy up the org folder if it's now empty.
+  try {
+    const orgDir = join(storeRoot(), name.org);
+    if (readdirSync(orgDir).length === 0) rmdirSync(orgDir);
+  } catch {
+    // org dir missing — fine
+  }
 }
 
 function isLink(path: string): boolean {
@@ -77,6 +86,10 @@ function removeLink(path: string): void {
   }
 }
 
+export function agentLinkPath(name: SkillName, agent: AgentDefinition): string {
+  return join(agent.skillsDir, linkFolderName(name));
+}
+
 export interface LinkOutcome {
   agent: AgentDefinition;
   mode: LinkMode | "skipped";
@@ -85,17 +98,17 @@ export interface LinkOutcome {
 
 /**
  * Links the store copy into one agent's skills dir.
- * `owned` = this slug is managed by MasterSkills (from state) — only then may
+ * `owned` = this skill is managed by MasterSkills (from state) — only then may
  * we replace a pre-existing REAL directory; a hand-made folder with the same
  * name is never destroyed.
  */
 export function linkSkillToAgent(
-  slug: string,
+  name: SkillName,
   agent: AgentDefinition,
   options: { owned: boolean },
 ): LinkOutcome {
-  const target = storeSkillDir(slug);
-  const linkPath = join(agent.skillsDir, slug);
+  const target = storeSkillDir(name);
+  const linkPath = agentLinkPath(name, agent);
   mkdirSync(agent.skillsDir, { recursive: true });
 
   if (existsSync(linkPath) || isLink(linkPath)) {
@@ -124,8 +137,8 @@ export function linkSkillToAgent(
   }
 }
 
-export function unlinkSkillFromAgent(slug: string, agent: AgentDefinition): boolean {
-  const linkPath = join(agent.skillsDir, slug);
+export function unlinkSkillFromAgent(name: SkillName, agent: AgentDefinition): boolean {
+  const linkPath = agentLinkPath(name, agent);
   if (isLink(linkPath)) {
     removeLink(linkPath);
     return true;

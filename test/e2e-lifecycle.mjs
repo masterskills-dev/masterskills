@@ -29,6 +29,10 @@ const API_URL = process.env.MASTERSKILLS_API_URL ?? "http://localhost:3000";
 const SLUG = "e2e-lifecycle-skill";
 const repoRoot = join(fileURLToPath(import.meta.url), "..", "..");
 const CLI = join(repoRoot, "dist", "cli.js");
+// Filled after token mint: the org namespace of the minted device.
+let ORG = "";
+let FULL = "";
+let LINK_FOLDER = "";
 
 // ---------------------------------------------------------------- isolation
 const sandbox = mkdtempSync(join(tmpdir(), "masterskills-e2e-"));
@@ -43,8 +47,8 @@ mkdirSync(HOME, { recursive: true });
 // Detection = base dir exists, so create all three fake agent homes.
 for (const dir of Object.values(AGENT_HOMES)) mkdirSync(dir, { recursive: true });
 
-const agentSkillPath = (agent, ...rest) => join(AGENT_HOMES[agent], "skills", SLUG, ...rest);
-const storeSkillPath = (...rest) => join(HOME, "skills", SLUG, ...rest);
+const agentSkillPath = (agent, ...rest) => join(AGENT_HOMES[agent], "skills", LINK_FOLDER, ...rest);
+const storeSkillPath = (...rest) => join(HOME, "skills", ORG, SLUG, ...rest);
 
 // ---------------------------------------------------------------- auth
 function mintToken() {
@@ -69,6 +73,14 @@ function cleanupServerState() {
 }
 
 const TOKEN = process.env.MASTERSKILLS_TOKEN ?? (cleanupServerState(), mintToken());
+ORG = execFileSync("docker", [
+  "exec", "masterskills-postgres-1", "psql", "-U", "masterskills", "-t", "-A", "-c",
+  `SELECT o.slug FROM organizations o JOIN devices d ON d.org_id = o.id WHERE d.name = 'e2e-lifecycle' LIMIT 1;`,
+], { encoding: "utf8" }).trim();
+if (!ORG) throw new Error("Could not resolve the test org slug");
+FULL = `@${ORG}/${SLUG}`;
+LINK_FOLDER = `${ORG}--${SLUG}`;
+console.log(`Test namespace: ${FULL}`);
 
 // ---------------------------------------------------------------- cli runner
 const env = {
@@ -119,33 +131,40 @@ console.log(`\nLifecycle e2e against ${API_URL}\n`);
 let r = cli("agents");
 check("0. agents: all three detected", r.code === 0 && ["claude-code", "codex", "cursor"].every((id) => r.out.includes(`${id}`) && !r.out.includes("not installed")), r.out);
 
+// 0b. install — the bundled masterskills meta-skill goes to every agent
+r = cli("install");
+check("0b. install distributes the masterskills skill", r.code === 0 && r.out.includes("masterskills skill installed"), r.out);
+for (const agent of Object.keys(AGENT_HOMES)) {
+  check(`0c. ${agent}: meta-skill linked`, existsSync(join(AGENT_HOMES[agent], "skills", "masterskills--cli", "SKILL.md")));
+}
+
 // 1. list — skill absent
 r = cli("list");
 check("1. list works, skill not present yet", r.code === 0 && !r.out.includes(SLUG), r.out);
 
-// 2. publish v1
+// 2. publish v1 (explicit @org target — the impark scenario)
 writeFixture(1);
-r = cli("publish", FIXTURE, "--yes");
-check("2. publish v1 succeeds", r.code === 0 && r.out.includes("Published") && r.out.includes("v1"), r.out);
+r = cli("publish", FIXTURE, "--yes", "--org", ORG, "--slug", SLUG);
+check("2. publish v1 succeeds", r.code === 0 && r.out.includes("Published") && r.out.includes(FULL) && r.out.includes("v1"), r.out);
 check("2b. secret file auto-excluded and reported", r.out.includes("config.local.json") && r.out.includes("EXCLUDED"), r.out);
 
-// 3. list — skill visible
+// 3. list — skill visible with full name
 r = cli("list");
-check("3. list shows the published skill", r.code === 0 && r.out.includes(SLUG) && r.out.includes("v1"), r.out);
+check("3. list shows the published skill", r.code === 0 && r.out.includes(FULL) && r.out.includes("v1"), r.out);
 
 // 4. search — hit and miss
 r = cli("search", "lifecycle demo");
-check("4. search finds by description", r.code === 0 && r.out.includes(SLUG), r.out);
+check("4. search finds by description", r.code === 0 && r.out.includes(FULL), r.out);
 r = cli("search", "zzz-no-such-skill");
 check("4b. search miss returns empty", r.code === 0 && !r.out.includes(SLUG), r.out);
 
 // 5. add — store + links into every detected agent
-r = cli("add", SLUG);
+r = cli("add", FULL);
 check("5. add installs the skill", r.code === 0 && r.out.includes("installed"), r.out);
 check("5b. store copy exists", existsSync(storeSkillPath("SKILL.md")) && readFileSync(storeSkillPath("SKILL.md"), "utf8").includes("v1"));
 for (const agent of Object.keys(AGENT_HOMES)) {
   check(`5c. ${agent}: skill readable through link`, existsSync(agentSkillPath(agent, "SKILL.md")) && readFileSync(agentSkillPath(agent, "SKILL.md"), "utf8").includes("v1"));
-  check(`5d. ${agent}: entry is a symlink/junction (not a copy)`, isLink(join(AGENT_HOMES[agent], "skills", SLUG)));
+  check(`5d. ${agent}: entry is a symlink/junction (not a copy)`, isLink(join(AGENT_HOMES[agent], "skills", LINK_FOLDER)));
 }
 check("5e. excluded secret file NOT distributed", !existsSync(storeSkillPath("config.local.json")));
 r = cli("list");
@@ -153,7 +172,7 @@ check("5f. list shows installed state", r.out.includes("installed v1"), r.out);
 
 // 6. publish v2
 writeFixture(2);
-r = cli("publish", FIXTURE, "--yes");
+r = cli("publish", FIXTURE, "--yes", "--org", ORG, "--slug", SLUG);
 check("6. publish v2 succeeds", r.code === 0 && r.out.includes("v2"), r.out);
 
 // 7. update --check — sees the version change
@@ -168,23 +187,23 @@ for (const agent of Object.keys(AGENT_HOMES)) {
 }
 
 // 9. link repair — user deletes a link by hand, `link` restores it
-rmSync(join(AGENT_HOMES.codex, "skills", SLUG), { recursive: true, force: true });
+rmSync(join(AGENT_HOMES.codex, "skills", LINK_FOLDER), { recursive: true, force: true });
 check("9. precondition: codex link deleted", !existsSync(agentSkillPath("codex", "SKILL.md")));
-r = cli("link", SLUG, "--agents", "codex");
+r = cli("link", FULL, "--agents", "codex");
 check("9b. link restores the codex link", r.code === 0 && existsSync(agentSkillPath("codex", "SKILL.md")), r.out);
 
 // 10. remove — local uninstall everywhere
-r = cli("remove", SLUG);
+r = cli("remove", FULL);
 check("10. remove uninstalls locally", r.code === 0 && r.out.includes("removed"), r.out);
 check("10b. store copy deleted", !existsSync(storeSkillPath()));
 for (const agent of Object.keys(AGENT_HOMES)) {
-  check(`10c. ${agent}: link removed`, !existsSync(join(AGENT_HOMES[agent], "skills", SLUG)));
+  check(`10c. ${agent}: link removed`, !existsSync(join(AGENT_HOMES[agent], "skills", LINK_FOLDER)));
 }
 r = cli("list");
-check("10d. list shows it as not installed (still in catalog)", r.out.includes(SLUG) && r.out.includes("not installed"), r.out);
+check("10d. list shows it as not installed (still in catalog)", r.out.includes(FULL) && r.out.includes("not installed"), r.out);
 
 // 11. unpublish — org-wide archive → gone from the catalog
-r = cli("unpublish", SLUG, "--yes");
+r = cli("unpublish", FULL, "--yes");
 check("11. unpublish archives the skill", r.code === 0 && r.out.includes("archived"), r.out);
 r = cli("list");
 check("11b. archived skill no longer listed", r.code === 0 && !r.out.includes(SLUG), r.out);

@@ -19,11 +19,15 @@ export interface InstallRecord {
 /** A prepared-but-unpublished draft, awaiting explicit user approval. */
 export interface DraftRecord {
   draftId: string;
+  /** Full name "@org/slug" as resolved by the server. */
+  name: string;
+  org: string;
   slug: string;
   /** Absolute path of the source folder at prepare time. */
   sourcePath: string;
   uploadUrl: string;
   nextVersion: number;
+  visibility: "private" | "public";
   manifest: PackageManifest;
   displayName?: string;
   description?: string;

@@ -12,18 +12,8 @@ import {
   unpublishSkill,
   updateSkills,
   type InstallOutcome,
+  type PrepareResult,
 } from "../core/skills.js";
-
-function describeAgents(outcome: InstallOutcome): string {
-  const linked = outcome.agents.filter((agent) => agent.mode !== "skipped");
-  const skipped = outcome.agents.filter((agent) => agent.mode === "skipped");
-  const parts: string[] = [];
-  if (linked.length > 0) {
-    parts.push(linked.map((agent) => `${agent.id} (${agent.mode})`).join(", "));
-  }
-  for (const agent of skipped) parts.push(`${agent.id} SKIPPED: ${agent.reason}`);
-  return parts.join("; ") || "no agents detected";
-}
 
 function friendlyError(error: unknown): never {
   if (error instanceof ApiError && error.status === 401) {
@@ -53,13 +43,32 @@ function formatSize(bytes: number): string {
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }
 
+function jsonOut(data: unknown): void {
+  console.log(JSON.stringify(data, null, 2));
+}
+
+function describeAgents(outcome: InstallOutcome): string {
+  const linked = outcome.agents.filter((agent) => agent.mode !== "skipped");
+  const skipped = outcome.agents.filter((agent) => agent.mode === "skipped");
+  const parts: string[] = [];
+  if (linked.length > 0) {
+    parts.push(linked.map((agent) => `${agent.id} (${agent.mode})`).join(", "));
+  }
+  for (const agent of skipped) parts.push(`${agent.id} SKIPPED: ${agent.reason}`);
+  return parts.join("; ") || "no agents detected";
+}
+
 // ---------------------------------------------------------------- list / search
 
-export async function listCommand(query?: string): Promise<void> {
+export async function listCommand(
+  query: string | undefined,
+  options: { json?: boolean } = {},
+): Promise<void> {
   try {
     const skills = await listSkills(query);
+    if (options.json) return jsonOut(skills);
     if (skills.length === 0) {
-      console.log(query ? `No skills matching "${query}".` : "No skills in your organization yet.");
+      console.log(query ? `No skills matching "${query}".` : "No skills in your organizations yet.");
       return;
     }
     for (const skill of skills) {
@@ -69,8 +78,8 @@ export async function listCommand(query?: string): Promise<void> {
           ? `installed v${skill.installedVersion} → update available`
           : `installed v${skill.installedVersion}`
         : "not installed";
-      const required = skill.isRequired ? " [required]" : "";
-      console.log(`${skill.slug}  ${version}  (${status})${required}`);
+      const flags = `${skill.isRequired ? " [required]" : ""}${skill.visibility === "public" ? " [public]" : ""}`;
+      console.log(`${skill.name}  ${version}  (${status})${flags}`);
       if (skill.description) console.log(`  ${skill.description}`);
     }
   } catch (error) {
@@ -80,11 +89,11 @@ export async function listCommand(query?: string): Promise<void> {
 
 // ---------------------------------------------------------------- add
 
-export async function addCommand(slugs: string[]): Promise<void> {
+export async function addCommand(names: string[]): Promise<void> {
   try {
-    const outcomes = await installSkills(slugs);
+    const outcomes = await installSkills(names);
     for (const outcome of outcomes) {
-      console.log(`✓ ${outcome.slug} v${outcome.version} installed → ${describeAgents(outcome)}`);
+      console.log(`✓ ${outcome.name} v${outcome.version} installed → ${describeAgents(outcome)}`);
     }
     console.log("\nSkills load in NEW agent sessions — restart your agent to pick them up.");
   } catch (error) {
@@ -94,10 +103,11 @@ export async function addCommand(slugs: string[]): Promise<void> {
 
 // ---------------------------------------------------------------- agents
 
-export async function agentsCommand(): Promise<void> {
-  for (const agent of agentsStatus()) {
-    const status = agent.detected ? "detected" : "not installed";
-    console.log(`${agent.id}  (${agent.displayName}) — ${status}`);
+export async function agentsCommand(options: { json?: boolean } = {}): Promise<void> {
+  const status = agentsStatus();
+  if (options.json) return jsonOut(status);
+  for (const agent of status) {
+    console.log(`${agent.id}  (${agent.displayName}) — ${agent.detected ? "detected" : "not installed"}`);
     console.log(`  skills dir: ${agent.skillsDir}`);
     if (agent.linkedSkills.length > 0) {
       console.log(`  linked skills: ${agent.linkedSkills.join(", ")}`);
@@ -108,7 +118,7 @@ export async function agentsCommand(): Promise<void> {
 // ---------------------------------------------------------------- link
 
 export async function linkCommand(
-  slugs: string[],
+  names: string[],
   options: { agents?: string },
 ): Promise<void> {
   try {
@@ -116,13 +126,13 @@ export async function linkCommand(
       ?.split(",")
       .map((id) => id.trim())
       .filter(Boolean);
-    const outcomes = await linkSkills(slugs, agentIds);
+    const outcomes = await linkSkills(names, agentIds);
     if (outcomes.length === 0) {
       console.log("Nothing to link — install skills first with `masterskills add`.");
       return;
     }
     for (const outcome of outcomes) {
-      console.log(`✓ ${outcome.slug} v${outcome.version} → ${describeAgents(outcome)}`);
+      console.log(`✓ ${outcome.name} v${outcome.version} → ${describeAgents(outcome)}`);
     }
   } catch (error) {
     friendlyError(error);
@@ -132,35 +142,36 @@ export async function linkCommand(
 // ---------------------------------------------------------------- update
 
 export async function updateCommand(
-  slugs: string[],
-  options: { check?: boolean },
+  names: string[],
+  options: { check?: boolean; json?: boolean },
 ): Promise<void> {
   try {
     if (options.check) {
       const diff = await reportSync();
+      if (options.json) return jsonOut(diff);
       if (diff.updates.length === 0 && diff.newRequired.length === 0 && diff.removed.length === 0) {
         console.log("Everything is up to date.");
         return;
       }
       for (const update of diff.updates) {
-        console.log(`↑ ${update.slug}  v${update.from} → v${update.to}`);
+        console.log(`↑ ${update.name}  v${update.from} → v${update.to}`);
       }
       for (const required of diff.newRequired) {
-        console.log(`+ ${required.slug}  v${required.version} — required by your organization, not installed`);
+        console.log(`+ ${required.name}  v${required.version} — required by your organization, not installed`);
       }
       for (const removed of diff.removed) {
-        console.log(`- ${removed.slug} — removed by your organization (run \`masterskills remove ${removed.slug}\` to clean up)`);
+        console.log(`- ${removed.name} — removed by your organization (run \`masterskills remove ${removed.name}\` to clean up)`);
       }
       return;
     }
 
-    const outcomes = await updateSkills(slugs);
+    const outcomes = await updateSkills(names);
     if (outcomes.length === 0) {
       console.log("Everything is up to date.");
       return;
     }
     for (const outcome of outcomes) {
-      console.log(`✓ ${outcome.slug} updated to v${outcome.version}`);
+      console.log(`✓ ${outcome.name} updated to v${outcome.version}`);
     }
   } catch (error) {
     friendlyError(error);
@@ -169,11 +180,11 @@ export async function updateCommand(
 
 // ---------------------------------------------------------------- remove
 
-export async function removeCommand(slugs: string[]): Promise<void> {
+export async function removeCommand(names: string[]): Promise<void> {
   try {
-    const results = await removeSkills(slugs);
+    const results = await removeSkills(names);
     for (const result of results) {
-      console.log(result.removed ? `✓ ${result.slug} removed from this machine` : `- ${result.slug} was not installed`);
+      console.log(result.removed ? `✓ ${result.name} removed from this machine` : `- ${result.name} was not installed`);
     }
   } catch (error) {
     friendlyError(error);
@@ -183,45 +194,98 @@ export async function removeCommand(slugs: string[]): Promise<void> {
 // ---------------------------------------------------------------- unpublish
 
 export async function unpublishCommand(
-  slug: string,
+  name: string,
   options: { yes?: boolean },
 ): Promise<void> {
   try {
     if (!options.yes) {
       const ok = await confirm(
-        `Archive "${slug}" for the WHOLE organization? Members will see it as removed on next sync.`,
+        `Archive "${name}" for the WHOLE organization? Members will see it as removed on next sync.`,
       );
       if (!ok) {
         console.log("Cancelled.");
         return;
       }
     }
-    await unpublishSkill(slug);
-    console.log(`✓ ${slug} archived — it no longer appears in the organization catalog.`);
+    const fullName = await unpublishSkill(name);
+    console.log(`✓ ${fullName} archived — it no longer appears in the organization catalog.`);
   } catch (error) {
     friendlyError(error);
   }
 }
 
-// ---------------------------------------------------------------- publish
+// ---------------------------------------------------------------- prepare / publish (two-phase, agent-friendly)
 
-export async function publishCommand(
+interface PublishOptions {
+  org?: string;
+  slug?: string;
+  name?: string;
+  desc?: string;
+  public?: boolean;
+  yes?: boolean;
+  json?: boolean;
+}
+
+function printManifest(prepared: PrepareResult): void {
+  console.log(`\n${prepared.name} → version ${prepared.nextVersion} (${prepared.visibility})`);
+  console.log(`${prepared.fileCount} files, ${formatSize(prepared.totalSize)}:`);
+  for (const file of prepared.files) console.log(`  ${file}`);
+  for (const excluded of prepared.excludedSecrets) {
+    console.log(`  ⚠ ${excluded.path} — EXCLUDED (${excluded.reason})`);
+  }
+}
+
+async function runPrepare(path: string | undefined, options: PublishOptions): Promise<PrepareResult> {
+  return preparePublish(path ?? ".", {
+    org: options.org,
+    slug: options.slug,
+    displayName: options.name,
+    description: options.desc,
+    visibility: options.public ? "public" : "private",
+  });
+}
+
+/** Agent flow step 1: build + register the draft, show the manifest, publish NOTHING. */
+export async function prepareCommand(
   path: string | undefined,
-  options: { slug?: string; name?: string; desc?: string; yes?: boolean },
+  options: PublishOptions,
 ): Promise<void> {
   try {
-    const prepared = await preparePublish(path ?? ".", {
-      slug: options.slug,
-      displayName: options.name,
-      description: options.desc,
-    });
+    const prepared = await runPrepare(path, options);
+    if (options.json) return jsonOut(prepared);
+    printManifest(prepared);
+    console.log(`\nDraft ready: ${prepared.draftId}`);
+    console.log(`To publish after approval: masterskills publish-draft ${prepared.draftId}`);
+  } catch (error) {
+    friendlyError(error);
+  }
+}
 
-    console.log(`\n${prepared.slug} → version ${prepared.nextVersion} (private)`);
-    console.log(`${prepared.fileCount} files, ${formatSize(prepared.totalSize)}:`);
-    for (const file of prepared.files) console.log(`  ${file}`);
-    for (const excluded of prepared.excludedSecrets) {
-      console.log(`  ⚠ ${excluded.path} — EXCLUDED (${excluded.reason})`);
+/** Agent flow step 2: upload + publish a previously approved draft. */
+export async function publishDraftCommand(draftId: string): Promise<void> {
+  try {
+    const outcome = await publishDraft(draftId);
+    console.log(`✓ Published ${outcome.name} v${outcome.version} (${outcome.contentHash.slice(0, 12)}…)`);
+    if (outcome.adopted) {
+      console.log(
+        `✓ Source folder adopted into the MasterSkills store and linked to: ${outcome.adopted.agents
+          .map((agent) => agent.id)
+          .join(", ")} — it now updates like any registry skill.`,
+      );
     }
+  } catch (error) {
+    friendlyError(error);
+  }
+}
+
+/** Human flow: prepare + confirm + publish in one go. */
+export async function publishCommand(
+  path: string | undefined,
+  options: PublishOptions,
+): Promise<void> {
+  try {
+    const prepared = await runPrepare(path, options);
+    printManifest(prepared);
 
     if (!options.yes) {
       const ok = await confirm("\nPublish this package?");
@@ -232,7 +296,14 @@ export async function publishCommand(
     }
 
     const outcome = await publishDraft(prepared.draftId);
-    console.log(`\n✓ Published ${outcome.slug} v${outcome.version} (${outcome.contentHash.slice(0, 12)}…)`);
+    console.log(`\n✓ Published ${outcome.name} v${outcome.version} (${outcome.contentHash.slice(0, 12)}…)`);
+    if (outcome.adopted) {
+      console.log(
+        `✓ Source folder adopted into the MasterSkills store and linked to: ${outcome.adopted.agents
+          .map((agent) => agent.id)
+          .join(", ")} — it now updates like any registry skill.`,
+      );
+    }
   } catch (error) {
     friendlyError(error);
   }

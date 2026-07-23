@@ -1,62 +1,69 @@
-import { spawnSync } from "node:child_process";
-
-const MCP_SERVER_NAME = "masterskills";
-const MANUAL_COMMAND =
-  "claude mcp add --scope user masterskills -- npx -y masterskills mcp";
-
-function runClaude(args: string[]): { ok: boolean; output: string } {
-  const result = spawnSync("claude", args, {
-    encoding: "utf8",
-    shell: process.platform === "win32",
-  });
-  const output = `${result.stdout ?? ""}${result.stderr ?? ""}`.trim();
-  return { ok: result.status === 0, output };
-}
+import { readdirSync, readFileSync } from "node:fs";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { detectAgents } from "../agents/registry.js";
+import { linkSkillToAgent, writeSkillToStore } from "../lib/store.js";
+import { sha256Hex, type TarEntry } from "../lib/tar.js";
 
 /**
- * One-time setup: registers the MasterSkills MCP server with the user's coding
- * agents. v1 supports Claude Code; Codex, Cursor and Gemini CLI are next.
+ * `masterskills install` — one-time setup.
+ *
+ * Distributes the bundled "masterskills" skill (skill/SKILL.md in this
+ * package) into every detected agent via the central store + links — the same
+ * mechanism used for registry skills. The skill teaches agents to drive this
+ * CLI, which replaces the parked MCP server as the agent interface.
  */
+
+const META_SKILL = { org: "masterskills", slug: "cli" };
+
+function bundledSkillDir(): string {
+  // dist/cli.js → ../skill (the folder ships in the npm package "files").
+  return join(fileURLToPath(import.meta.url), "..", "..", "skill");
+}
+
+function readBundledSkill(): TarEntry[] {
+  const root = bundledSkillDir();
+  const entries: TarEntry[] = [];
+  const walk = (relative: string) => {
+    for (const entry of readdirSync(join(root, relative), { withFileTypes: true })) {
+      const relPath = relative ? `${relative}/${entry.name}` : entry.name;
+      if (entry.isDirectory()) walk(relPath);
+      else if (entry.isFile()) {
+        const content = readFileSync(join(root, relPath));
+        entries.push({ path: relPath, size: content.length, sha256: sha256Hex(content), content });
+      }
+    }
+  };
+  walk("");
+  if (!entries.some((entry) => entry.path === "SKILL.md")) {
+    throw new Error("Bundled skill is missing SKILL.md — broken package?");
+  }
+  return entries;
+}
+
 export async function installCommand(): Promise<void> {
   console.log("Setting up MasterSkills…\n");
 
-  const detect = runClaude(["--version"]);
-  if (!detect.ok) {
-    console.log("Claude Code CLI not found on this machine.");
-    console.log("If Claude Code is installed elsewhere, register manually:\n");
-    console.log(`  ${MANUAL_COMMAND}\n`);
-    console.log("Other agents (Codex, Cursor, Gemini CLI): coming soon.");
+  const agents = detectAgents();
+  if (agents.length === 0) {
+    console.log("No supported agents detected (Claude Code, Codex, Cursor).");
+    console.log("Install one of them first, then re-run: masterskills install");
     process.exitCode = 1;
     return;
   }
 
-  console.log(`✓ Claude Code detected (${detect.output.split("\n")[0]})`);
-  console.log(`→ Registering MCP server "${MCP_SERVER_NAME}" (user scope)…`);
+  const entries = readBundledSkill();
+  writeSkillToStore(META_SKILL, entries);
 
-  const add = runClaude([
-    "mcp",
-    "add",
-    "--scope",
-    "user",
-    MCP_SERVER_NAME,
-    "--",
-    "npx",
-    "-y",
-    "masterskills",
-    "mcp",
-  ]);
-
-  if (add.ok) {
-    console.log("✓ MCP server registered for Claude Code (all projects).");
-  } else if (/already exists/i.test(add.output)) {
-    console.log("✓ MCP server was already registered — nothing to do.");
-  } else {
-    console.error(`✗ Registration failed:\n${add.output}\n`);
-    console.error(`Register manually with:\n  ${MANUAL_COMMAND}`);
-    process.exitCode = 1;
-    return;
+  for (const agent of agents) {
+    const outcome = linkSkillToAgent(META_SKILL, agent, { owned: true });
+    if (outcome.mode === "skipped") {
+      console.log(`- ${agent.displayName}: SKIPPED (${outcome.reason})`);
+    } else {
+      console.log(`✓ ${agent.displayName}: masterskills skill installed (${outcome.mode})`);
+    }
   }
 
-  console.log("\nOther agents (Codex, Cursor, Gemini CLI): coming soon.");
+  console.log("\nYour agents now know how to use MasterSkills — restart them to load the skill.");
   console.log("\nNext step:\n  masterskills login");
 }

@@ -8,7 +8,9 @@ import {
   agentsCommand,
   linkCommand,
   listCommand,
+  prepareCommand,
   publishCommand,
+  publishDraftCommand,
   removeCommand,
   syncCommand,
   unpublishCommand,
@@ -53,12 +55,14 @@ program
 
 program
   .command("list [query]")
-  .description("List your organization's skills (optionally filtered)")
+  .description("List skills across your organizations (optionally filtered)")
+  .option("--json", "Machine-readable output")
   .action(listCommand);
 
 program
   .command("search <query>")
-  .description("Search your organization's skills")
+  .description("Search skills across your organizations")
+  .option("--json", "Machine-readable output")
   .action(listCommand);
 
 program
@@ -67,9 +71,10 @@ program
   .action(addCommand);
 
 program
-  .command("update [slugs...]")
+  .command("update [names...]")
   .description("Update installed skills to their latest versions")
   .option("--check", "Only show what would change")
+  .option("--json", "Machine-readable output (with --check)")
   .action(updateCommand);
 
 program
@@ -79,12 +84,30 @@ program
 
 program
   .command("publish [path]")
-  .description("Publish a skill folder to your organization's registry")
+  .description("Publish a skill folder (interactive: shows the manifest, asks, publishes)")
+  .option("--org <org>", "Target namespace, e.g. @impark (default: your personal @username)")
   .option("--slug <slug>", "Registry slug (default: SKILL.md frontmatter name)")
   .option("--name <name>", "Display name")
   .option("--desc <description>", "Description")
+  .option("--public", "Make the skill public (default: private)")
   .option("-y, --yes", "Skip the confirmation prompt")
   .action(publishCommand);
+
+program
+  .command("prepare [path]")
+  .description("Build a publish draft WITHOUT uploading (agent flow: show manifest, get approval)")
+  .option("--org <org>", "Target namespace, e.g. @impark (default: your personal @username)")
+  .option("--slug <slug>", "Registry slug (default: SKILL.md frontmatter name)")
+  .option("--name <name>", "Display name")
+  .option("--desc <description>", "Description")
+  .option("--public", "Make the skill public (default: private)")
+  .option("--json", "Machine-readable output")
+  .action(prepareCommand);
+
+program
+  .command("publish-draft <draftId>")
+  .description("Upload and publish a previously prepared (and approved) draft")
+  .action(publishDraftCommand);
 
 program
   .command("unpublish <slug>")
@@ -100,10 +123,11 @@ program
 program
   .command("agents")
   .description("Show supported agents, detection status and linked skills")
+  .option("--json", "Machine-readable output")
   .action(agentsCommand);
 
 program
-  .command("link [slugs...]")
+  .command("link [names...]")
   .description("Link installed skills into agent skill directories (default: all skills, all detected agents)")
   .option("--agents <ids>", "Comma-separated agent ids (claude-code,codex,cursor)")
   .action(linkCommand);

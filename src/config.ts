@@ -8,7 +8,10 @@ export interface CliConfig {
   token?: string;
   deviceId?: string;
   userEmail?: string;
+  /** Home org slug (device's plan anchor). */
   orgSlug?: string;
+  /** Personal org slug — the default publish namespace (@username). */
+  username?: string;
 }
 
 /**

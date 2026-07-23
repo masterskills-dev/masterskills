@@ -61,8 +61,15 @@ export async function loginCommand(options: LoginOptions = {}): Promise<void> {
         userEmail: result.user?.email,
         orgSlug: result.org?.slug,
       });
+      // Fetch the username (personal namespace) — the default publish target.
+      try {
+        const me = await api<{ user: { username: string } }>("/me");
+        saveConfig({ ...loadConfig(), username: me.user.username });
+      } catch {
+        // Non-fatal: defaultOrg() resolves it lazily later.
+      }
       console.log(`\n✓ Logged in as ${result.user?.email ?? "unknown"}`);
-      if (result.org) console.log(`✓ Organization: ${result.org.slug}`);
+      if (result.org) console.log(`✓ Organization: @${result.org.slug}`);
       console.log("✓ This device is authorized — you won't need to log in again here.");
       return;
     } catch (error) {
