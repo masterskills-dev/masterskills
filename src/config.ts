@@ -11,7 +11,12 @@ export interface CliConfig {
   orgSlug?: string;
 }
 
-export const CONFIG_DIR = join(homedir(), ".masterskills");
+/**
+ * MASTERSKILLS_HOME redirects all CLI state (config, state, drafts) — used by
+ * the e2e harness and useful for CI. Defaults to ~/.masterskills.
+ */
+export const CONFIG_DIR =
+  process.env.MASTERSKILLS_HOME ?? join(homedir(), ".masterskills");
 const CONFIG_PATH = join(CONFIG_DIR, "config.json");
 
 export const DEFAULT_API_URL =
@@ -24,6 +29,11 @@ export function loadConfig(): CliConfig {
   } catch {
     return {};
   }
+}
+
+/** MASTERSKILLS_TOKEN (CI / service use) wins over the stored device token. */
+export function resolveToken(): string | undefined {
+  return process.env.MASTERSKILLS_TOKEN ?? loadConfig().token;
 }
 
 export function saveConfig(config: CliConfig): void {

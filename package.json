@@ -15,6 +15,7 @@
     "build": "tsup",
     "dev": "tsup --watch",
     "typecheck": "tsc --noEmit",
+    "test:e2e": "node test/e2e-lifecycle.mjs",
     "prepublishOnly": "pnpm build"
   },
   "keywords": [
@@ -41,10 +42,12 @@
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
     "commander": "^15.0.0",
+    "tar-stream": "^3.2.0",
     "zod": "^3.25.76"
   },
   "devDependencies": {
     "@types/node": "^26.1.1",
+    "@types/tar-stream": "^3.1.4",
     "tsup": "^8.5.1",
     "typescript": "^7.0.2"
   }
