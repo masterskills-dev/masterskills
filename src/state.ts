@@ -8,6 +8,12 @@ export interface InstallRecord {
   version: number;
   contentHash: string;
   installedAt: string;
+  /**
+   * Agent id → link mode. "symlink" links live-update from the store; "copy"
+   * fallback gets re-copied on every update. Records missing this field are
+   * pre-store-era installs (written directly into ~/.claude/skills).
+   */
+  agents?: Record<string, "symlink" | "copy">;
 }
 
 /** A prepared-but-unpublished draft, awaiting explicit user approval. */

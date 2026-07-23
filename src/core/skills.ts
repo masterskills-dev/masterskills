@@ -1,12 +1,32 @@
+import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { api } from "../api/client.js";
-import { installSkillFiles, removeSkillFiles, skillDir } from "../agents/claude-code.js";
+import {
+  allAgents,
+  detectAgents,
+  resolveAgents,
+  type AgentDefinition,
+} from "../agents/registry.js";
 import { buildPackage, readFrontmatter, type PackageManifest } from "../lib/manifest.js";
+import {
+  linkSkillToAgent,
+  removeSkillFromStore,
+  storeSkillDir,
+  unlinkSkillFromAgent,
+  writeSkillToStore,
+  type LinkMode,
+} from "../lib/store.js";
 import { packTarGz, parseTarGz, sha256Hex } from "../lib/tar.js";
 import { loadState, saveState, type DraftRecord } from "../state.js";
 
 /**
  * Core skill operations — shared by CLI commands and MCP tools.
+ *
+ * Storage model: one real copy per skill in ~/.masterskills/skills/<slug>,
+ * linked (junction/symlink, copy fallback) into every detected agent's skills
+ * dir. Install targets are auto-detected — the user is never asked which
+ * agents to install to; `link` exists for explicit re-targeting.
+ *
  * The two inviolable principles live at the CALLER level: nothing here asks
  * questions, so every caller (command or agent) must obtain explicit user
  * approval BEFORE invoking install/publish/remove operations.
@@ -44,6 +64,7 @@ export interface SyncResult {
 export interface ListedSkill extends CatalogSkill {
   installedVersion: number | null;
   updateAvailable: boolean;
+  installedAgents: string[];
 }
 
 export async function listSkills(query?: string): Promise<ListedSkill[]> {
@@ -57,8 +78,33 @@ export async function listSkills(query?: string): Promise<ListedSkill[]> {
       installedVersion: installed?.version ?? null,
       updateAvailable:
         !!installed && !!skill.latestVersion && skill.latestVersion.number > installed.version,
+      installedAgents: Object.keys(installed?.agents ?? {}),
     };
   });
+}
+
+// ---------------------------------------------------------------- agents
+
+export interface AgentStatus {
+  id: string;
+  displayName: string;
+  detected: boolean;
+  skillsDir: string;
+  linkedSkills: string[];
+}
+
+export function agentsStatus(): AgentStatus[] {
+  const detected = new Set(detectAgents().map((agent) => agent.id));
+  const { installs } = loadState();
+  return allAgents().map((agent) => ({
+    id: agent.id,
+    displayName: agent.displayName,
+    detected: detected.has(agent.id),
+    skillsDir: agent.skillsDir,
+    linkedSkills: Object.entries(installs)
+      .filter(([, record]) => record.agents?.[agent.id])
+      .map(([slug]) => slug),
+  }));
 }
 
 // ---------------------------------------------------------------- install
@@ -66,11 +112,32 @@ export async function listSkills(query?: string): Promise<ListedSkill[]> {
 export interface InstallOutcome {
   slug: string;
   version: number;
-  path: string;
+  storePath: string;
+  agents: { id: string; mode: LinkMode | "skipped"; reason?: string }[];
+}
+
+function linkToAgents(
+  slug: string,
+  agents: AgentDefinition[],
+  owned: boolean,
+): InstallOutcome["agents"] {
+  const results: InstallOutcome["agents"] = [];
+  const state = loadState();
+  const record = state.installs[slug];
+  for (const agent of agents) {
+    const outcome = linkSkillToAgent(slug, agent, { owned });
+    results.push({ id: agent.id, mode: outcome.mode, reason: outcome.reason });
+    if (record && outcome.mode !== "skipped") {
+      record.agents = { ...record.agents, [agent.id]: outcome.mode };
+    }
+  }
+  if (record) saveState(state);
+  return results;
 }
 
 export async function installSkills(slugs: string[]): Promise<InstallOutcome[]> {
   const outcomes: InstallOutcome[] = [];
+  const targets = detectAgents();
 
   for (const slug of slugs) {
     const detail = await api<SkillDetail>(`/skills/${encodeURIComponent(slug)}`);
@@ -90,20 +157,56 @@ export async function installSkills(slugs: string[]): Promise<InstallOutcome[]> 
     }
 
     const entries = await parseTarGz(tarball);
-    const path = installSkillFiles(slug, entries);
+    const ownedBefore = !!loadState().installs[slug];
+    const storePath = writeSkillToStore(slug, entries);
 
     const state = loadState();
     state.installs[slug] = {
       version: latest.number,
       contentHash: download.contentHash,
       installedAt: new Date().toISOString(),
+      agents: state.installs[slug]?.agents ?? {},
     };
     saveState(state);
 
-    outcomes.push({ slug, version: latest.number, path });
+    // Copy-mode agents need a re-copy after every store rewrite; symlinks
+    // update implicitly. Re-linking both keeps it uniform and idempotent.
+    const agentResults = linkToAgents(slug, targets, ownedBefore);
+
+    outcomes.push({ slug, version: latest.number, storePath, agents: agentResults });
   }
 
   await reportSync();
+  return outcomes;
+}
+
+// ---------------------------------------------------------------- link (explicit re-targeting)
+
+export async function linkSkills(
+  slugs?: string[],
+  agentIds?: string[],
+): Promise<InstallOutcome[]> {
+  const state = loadState();
+  const targetSlugs = slugs && slugs.length > 0 ? slugs : Object.keys(state.installs);
+  const agents = resolveAgents(agentIds);
+  if (agents.length === 0) {
+    throw new Error("No matching agents detected on this machine");
+  }
+
+  const outcomes: InstallOutcome[] = [];
+  for (const slug of targetSlugs) {
+    const record = state.installs[slug];
+    if (!record) throw new Error(`"${slug}" is not installed — run \`masterskills add ${slug}\` first`);
+    if (!existsSync(storeSkillDir(slug))) {
+      throw new Error(`Store copy for "${slug}" is missing — run \`masterskills add ${slug}\` to repair`);
+    }
+    outcomes.push({
+      slug,
+      version: record.version,
+      storePath: storeSkillDir(slug),
+      agents: linkToAgents(slug, agents, true),
+    });
+  }
   return outcomes;
 }
 
@@ -133,13 +236,28 @@ export async function updateSkills(slugs?: string[]): Promise<InstallOutcome[]> 
 // ---------------------------------------------------------------- remove (local uninstall)
 
 export async function removeSkills(slugs: string[]): Promise<{ slug: string; removed: boolean }[]> {
-  const results = slugs.map((slug) => {
-    const removed = removeSkillFiles(slug);
+  const results: { slug: string; removed: boolean }[] = [];
+
+  for (const slug of slugs) {
     const state = loadState();
+    const record = state.installs[slug];
+    // Only clean agent dirs we know we own; legacy (pre-store) installs lived
+    // directly in Claude Code's dir.
+    const agentIds = record?.agents ? Object.keys(record.agents) : ["claude-code"];
+    let removedAnything = false;
+    for (const agent of allAgents()) {
+      if (!agentIds.includes(agent.id)) continue;
+      if (unlinkSkillFromAgent(slug, agent)) removedAnything = true;
+    }
+    if (existsSync(storeSkillDir(slug))) {
+      removeSkillFromStore(slug);
+      removedAnything = true;
+    }
     delete state.installs[slug];
     saveState(state);
-    return { slug, removed };
-  });
+    results.push({ slug, removed: removedAnything || !!record });
+  }
+
   await reportSync();
   return results;
 }
@@ -273,5 +391,4 @@ export async function publishDraft(draftId: string): Promise<PublishOutcome> {
   };
 }
 
-export { skillDir };
 export type { PackageManifest };

@@ -5,6 +5,8 @@ import { installCommand } from "./commands/install.js";
 import { loginCommand } from "./commands/login.js";
 import {
   addCommand,
+  agentsCommand,
+  linkCommand,
   listCommand,
   publishCommand,
   removeCommand,
@@ -94,6 +96,17 @@ program
   .command("sync")
   .description("Report installed skills and fetch pending changes")
   .action(syncCommand);
+
+program
+  .command("agents")
+  .description("Show supported agents, detection status and linked skills")
+  .action(agentsCommand);
+
+program
+  .command("link [slugs...]")
+  .description("Link installed skills into agent skill directories (default: all skills, all detected agents)")
+  .option("--agents <ids>", "Comma-separated agent ids (claude-code,codex,cursor)")
+  .action(linkCommand);
 
 program
   .command("mcp", { hidden: true })

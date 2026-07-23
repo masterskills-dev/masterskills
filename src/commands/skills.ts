@@ -1,7 +1,9 @@
 import { createInterface } from "node:readline/promises";
 import { ApiError } from "../api/client.js";
 import {
+  agentsStatus,
   installSkills,
+  linkSkills,
   listSkills,
   preparePublish,
   publishDraft,
@@ -9,7 +11,19 @@ import {
   reportSync,
   unpublishSkill,
   updateSkills,
+  type InstallOutcome,
 } from "../core/skills.js";
+
+function describeAgents(outcome: InstallOutcome): string {
+  const linked = outcome.agents.filter((agent) => agent.mode !== "skipped");
+  const skipped = outcome.agents.filter((agent) => agent.mode === "skipped");
+  const parts: string[] = [];
+  if (linked.length > 0) {
+    parts.push(linked.map((agent) => `${agent.id} (${agent.mode})`).join(", "));
+  }
+  for (const agent of skipped) parts.push(`${agent.id} SKIPPED: ${agent.reason}`);
+  return parts.join("; ") || "no agents detected";
+}
 
 function friendlyError(error: unknown): never {
   if (error instanceof ApiError && error.status === 401) {
@@ -70,9 +84,46 @@ export async function addCommand(slugs: string[]): Promise<void> {
   try {
     const outcomes = await installSkills(slugs);
     for (const outcome of outcomes) {
-      console.log(`✓ ${outcome.slug} v${outcome.version} installed → ${outcome.path}`);
+      console.log(`✓ ${outcome.slug} v${outcome.version} installed → ${describeAgents(outcome)}`);
     }
-    console.log("\nSkills load in NEW agent sessions — restart Claude Code to pick them up.");
+    console.log("\nSkills load in NEW agent sessions — restart your agent to pick them up.");
+  } catch (error) {
+    friendlyError(error);
+  }
+}
+
+// ---------------------------------------------------------------- agents
+
+export async function agentsCommand(): Promise<void> {
+  for (const agent of agentsStatus()) {
+    const status = agent.detected ? "detected" : "not installed";
+    console.log(`${agent.id}  (${agent.displayName}) — ${status}`);
+    console.log(`  skills dir: ${agent.skillsDir}`);
+    if (agent.linkedSkills.length > 0) {
+      console.log(`  linked skills: ${agent.linkedSkills.join(", ")}`);
+    }
+  }
+}
+
+// ---------------------------------------------------------------- link
+
+export async function linkCommand(
+  slugs: string[],
+  options: { agents?: string },
+): Promise<void> {
+  try {
+    const agentIds = options.agents
+      ?.split(",")
+      .map((id) => id.trim())
+      .filter(Boolean);
+    const outcomes = await linkSkills(slugs, agentIds);
+    if (outcomes.length === 0) {
+      console.log("Nothing to link — install skills first with `masterskills add`.");
+      return;
+    }
+    for (const outcome of outcomes) {
+      console.log(`✓ ${outcome.slug} v${outcome.version} → ${describeAgents(outcome)}`);
+    }
   } catch (error) {
     friendlyError(error);
   }

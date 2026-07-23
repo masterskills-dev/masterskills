@@ -3,13 +3,15 @@
  * real CLI binary against a running server (default http://localhost:3000).
  *
  * Sequence (mirrors the product's core loop):
- *   list → publish v1 → list (verify) → search (hit + miss) → add (download,
- *   verify files) → publish v2 → update --check (sees v1→v2) → update (gets
- *   v2 files) → remove (local uninstall) → unpublish (org archive) → list
- *   (must be gone)
+ *   list → publish v1 → list (verify) → search (hit + miss) → add (store +
+ *   links into ALL detected agents) → publish v2 → update --check → update
+ *   (v2 propagates through links) → link repair → remove (local uninstall)
+ *   → unpublish (org archive) → list (must be gone)
  *
- * Isolation: MASTERSKILLS_HOME and MASTERSKILLS_CLAUDE_DIR point at temp dirs —
- * the harness NEVER touches your real ~/.masterskills or ~/.claude.
+ * Agent model under test: central store at ~/.masterskills/skills/<slug>,
+ * junction/symlinked into Claude Code, Codex and Cursor skill dirs (all three
+ * faked inside the sandbox via MASTERSKILLS_*_DIR overrides — your real agent
+ * dirs are never touched).
  *
  * Auth: MASTERSKILLS_TOKEN env if set; otherwise mints a device token via the
  * local docker postgres (dev convenience).
@@ -18,7 +20,7 @@
  */
 import { execFileSync } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -31,9 +33,18 @@ const CLI = join(repoRoot, "dist", "cli.js");
 // ---------------------------------------------------------------- isolation
 const sandbox = mkdtempSync(join(tmpdir(), "masterskills-e2e-"));
 const HOME = join(sandbox, "masterskills-home");
-const CLAUDE = join(sandbox, "claude-home");
+const AGENT_HOMES = {
+  "claude-code": join(sandbox, "claude-home"),
+  codex: join(sandbox, "codex-home"),
+  cursor: join(sandbox, "cursor-home"),
+};
 const FIXTURE = join(sandbox, "fixture-skill");
 mkdirSync(HOME, { recursive: true });
+// Detection = base dir exists, so create all three fake agent homes.
+for (const dir of Object.values(AGENT_HOMES)) mkdirSync(dir, { recursive: true });
+
+const agentSkillPath = (agent, ...rest) => join(AGENT_HOMES[agent], "skills", SLUG, ...rest);
+const storeSkillPath = (...rest) => join(HOME, "skills", SLUG, ...rest);
 
 // ---------------------------------------------------------------- auth
 function mintToken() {
@@ -65,7 +76,9 @@ const env = {
   MASTERSKILLS_API_URL: API_URL,
   MASTERSKILLS_TOKEN: TOKEN,
   MASTERSKILLS_HOME: HOME,
-  MASTERSKILLS_CLAUDE_DIR: CLAUDE,
+  MASTERSKILLS_CLAUDE_DIR: AGENT_HOMES["claude-code"],
+  MASTERSKILLS_CODEX_DIR: AGENT_HOMES.codex,
+  MASTERSKILLS_CURSOR_DIR: AGENT_HOMES.cursor,
 };
 
 function cli(...args) {
@@ -82,6 +95,14 @@ function check(name, condition, extra = "") {
   if (!condition) failures++;
 }
 
+function isLink(path) {
+  try {
+    return lstatSync(path).isSymbolicLink();
+  } catch {
+    return false;
+  }
+}
+
 function writeFixture(version) {
   rmSync(FIXTURE, { recursive: true, force: true });
   mkdirSync(join(FIXTURE, "references"), { recursive: true });
@@ -94,8 +115,12 @@ function writeFixture(version) {
 // ================================================================ sequence
 console.log(`\nLifecycle e2e against ${API_URL}\n`);
 
+// 0. agents — all three fakes detected
+let r = cli("agents");
+check("0. agents: all three detected", r.code === 0 && ["claude-code", "codex", "cursor"].every((id) => r.out.includes(`${id}`) && !r.out.includes("not installed")), r.out);
+
 // 1. list — skill absent
-let r = cli("list");
+r = cli("list");
 check("1. list works, skill not present yet", r.code === 0 && !r.out.includes(SLUG), r.out);
 
 // 2. publish v1
@@ -114,16 +139,17 @@ check("4. search finds by description", r.code === 0 && r.out.includes(SLUG), r.
 r = cli("search", "zzz-no-such-skill");
 check("4b. search miss returns empty", r.code === 0 && !r.out.includes(SLUG), r.out);
 
-// 5. add — download + files on disk
+// 5. add — store + links into every detected agent
 r = cli("add", SLUG);
-const skillMd = join(CLAUDE, "skills", SLUG, "SKILL.md");
-const rulesMd = join(CLAUDE, "skills", SLUG, "references", "rules.md");
 check("5. add installs the skill", r.code === 0 && r.out.includes("installed"), r.out);
-check("5b. SKILL.md written to agent dir", existsSync(skillMd) && readFileSync(skillMd, "utf8").includes("v1"));
-check("5c. nested reference file written", existsSync(rulesMd));
-check("5d. excluded secret file NOT downloaded", !existsSync(join(CLAUDE, "skills", SLUG, "config.local.json")));
+check("5b. store copy exists", existsSync(storeSkillPath("SKILL.md")) && readFileSync(storeSkillPath("SKILL.md"), "utf8").includes("v1"));
+for (const agent of Object.keys(AGENT_HOMES)) {
+  check(`5c. ${agent}: skill readable through link`, existsSync(agentSkillPath(agent, "SKILL.md")) && readFileSync(agentSkillPath(agent, "SKILL.md"), "utf8").includes("v1"));
+  check(`5d. ${agent}: entry is a symlink/junction (not a copy)`, isLink(join(AGENT_HOMES[agent], "skills", SLUG)));
+}
+check("5e. excluded secret file NOT distributed", !existsSync(storeSkillPath("config.local.json")));
 r = cli("list");
-check("5e. list shows installed state", r.out.includes("installed v1"), r.out);
+check("5f. list shows installed state", r.out.includes("installed v1"), r.out);
 
 // 6. publish v2
 writeFixture(2);
@@ -134,23 +160,34 @@ check("6. publish v2 succeeds", r.code === 0 && r.out.includes("v2"), r.out);
 r = cli("update", "--check");
 check("7. update --check reports v1 → v2", r.code === 0 && r.out.includes("v1 → v2"), r.out);
 
-// 8. update — new version on disk
+// 8. update — v2 lands in the store and propagates through EVERY link
 r = cli("update");
-check("8. update applies v2", r.code === 0 && r.out.includes("updated to v2"), r.out);
-check("8b. SKILL.md content is now v2", readFileSync(skillMd, "utf8").includes("v2"));
+check("8. update applies v2", r.code === 0 && r.out.includes("v2"), r.out);
+for (const agent of Object.keys(AGENT_HOMES)) {
+  check(`8b. ${agent}: sees v2 through the link`, readFileSync(agentSkillPath(agent, "SKILL.md"), "utf8").includes("v2"));
+}
 
-// 9. remove — local uninstall
+// 9. link repair — user deletes a link by hand, `link` restores it
+rmSync(join(AGENT_HOMES.codex, "skills", SLUG), { recursive: true, force: true });
+check("9. precondition: codex link deleted", !existsSync(agentSkillPath("codex", "SKILL.md")));
+r = cli("link", SLUG, "--agents", "codex");
+check("9b. link restores the codex link", r.code === 0 && existsSync(agentSkillPath("codex", "SKILL.md")), r.out);
+
+// 10. remove — local uninstall everywhere
 r = cli("remove", SLUG);
-check("9. remove uninstalls locally", r.code === 0 && r.out.includes("removed"), r.out);
-check("9b. skill dir deleted", !existsSync(join(CLAUDE, "skills", SLUG)));
+check("10. remove uninstalls locally", r.code === 0 && r.out.includes("removed"), r.out);
+check("10b. store copy deleted", !existsSync(storeSkillPath()));
+for (const agent of Object.keys(AGENT_HOMES)) {
+  check(`10c. ${agent}: link removed`, !existsSync(join(AGENT_HOMES[agent], "skills", SLUG)));
+}
 r = cli("list");
-check("9c. list shows it as not installed (still in catalog)", r.out.includes(SLUG) && r.out.includes("not installed"), r.out);
+check("10d. list shows it as not installed (still in catalog)", r.out.includes(SLUG) && r.out.includes("not installed"), r.out);
 
-// 10. unpublish — org-wide archive → gone from the catalog
+// 11. unpublish — org-wide archive → gone from the catalog
 r = cli("unpublish", SLUG, "--yes");
-check("10. unpublish archives the skill", r.code === 0 && r.out.includes("archived"), r.out);
+check("11. unpublish archives the skill", r.code === 0 && r.out.includes("archived"), r.out);
 r = cli("list");
-check("10b. archived skill no longer listed", r.code === 0 && !r.out.includes(SLUG), r.out);
+check("11b. archived skill no longer listed", r.code === 0 && !r.out.includes(SLUG), r.out);
 
 // ---------------------------------------------------------------- verdict
 cleanupServerState();
