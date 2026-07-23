@@ -133,7 +133,7 @@ check("0. agents: all three detected", r.code === 0 && ["claude-code", "codex", 
 
 // 0b. install — the bundled masterskills meta-skill goes to every agent
 r = cli("install");
-check("0b. install distributes the masterskills skill", r.code === 0 && r.out.includes("masterskills skill installed"), r.out);
+check("0b. install distributes the bundled skills", r.code === 0 && r.out.includes("@masterskills/cli installed"), r.out);
 for (const agent of Object.keys(AGENT_HOMES)) {
   check(`0c. ${agent}: meta-skill linked`, existsSync(join(AGENT_HOMES[agent], "skills", "masterskills--cli", "SKILL.md")));
 }
