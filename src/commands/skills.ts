@@ -1,5 +1,6 @@
 import { createInterface } from "node:readline/promises";
 import { ApiError } from "../api/client.js";
+import { findKit } from "../core/kits.js";
 import {
   agentsStatus,
   installSkills,
@@ -89,9 +90,39 @@ export async function listCommand(
 
 // ---------------------------------------------------------------- add
 
+/**
+ * Installs skills — and kits. Kits share the org namespace with skills, so a
+ * name that isn't a skill is looked up as a kit and its contents installed.
+ * That is what makes `masterskills add @acme/frontend` a one-command install
+ * whether "frontend" is a single skill or a bundle.
+ */
 export async function addCommand(names: string[]): Promise<void> {
   try {
-    const outcomes = await installSkills(names);
+    const outcomes: InstallOutcome[] = [];
+
+    for (const name of names) {
+      try {
+        outcomes.push(...(await installSkills([name])));
+      } catch (error) {
+        const notASkill =
+          error instanceof ApiError && error.status === 404;
+        if (!notASkill) throw error;
+
+        const kit = await findKit(name);
+        if (!kit) throw error; // neither a skill nor a kit
+
+        console.log(
+          `${kit.name} is a kit — installing ${kit.skills.length} skill(s) it contains:`,
+        );
+        if (kit.hiddenCount > 0) {
+          console.log(
+            `  (${kit.hiddenCount} skill(s) in this kit aren't available to you and were skipped)`,
+          );
+        }
+        outcomes.push(...(await installSkills(kit.skills.map((s) => s.name))));
+      }
+    }
+
     for (const outcome of outcomes) {
       console.log(`✓ ${outcome.name} v${outcome.version} installed → ${describeAgents(outcome)}`);
     }

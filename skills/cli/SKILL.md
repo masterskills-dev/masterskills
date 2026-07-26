@@ -1,6 +1,6 @@
 ---
 name: masterskills
-description: Manage the user's private team/organization AI skills through the MasterSkills registry CLI. Use whenever the user asks about team skills, company/org skills, private or shared skills, a skill registry, publishing/installing/updating/searching skills across the team, or mentions masterskills or a name like @org/skill-name. Runs the `masterskills` CLI via shell.
+description: Manage the user's private team/organization AI skills and kits through the MasterSkills registry CLI. Use whenever the user asks about team skills, company/org skills, private or shared skills, a skill registry, skill bundles or kits, publishing/installing/updating/searching skills across the team, or mentions masterskills or a name like @org/skill-name. Runs the `masterskills` CLI via shell.
 ---
 
 # MasterSkills — private skill registry
@@ -9,6 +9,14 @@ MasterSkills is the user's private skill registry. Skills are named `@org/slug`
 (e.g. `@impark/yayincilik-docs`). Every user has a personal namespace
 (`@username`) and may belong to team organizations. All operations go through
 the `masterskills` CLI — prefer the `--json` flags and parse the output.
+
+**Kits** are named bundles of skills installed with one command — e.g.
+`@impark/frontend` might contain a React review skill, a design-system skill and
+a testing skill. Kits share the `@org/slug` namespace with skills, so
+`masterskills add @impark/frontend` works whether the name is a skill or a kit.
+A kit may bundle skills from other namespaces (including the public
+`@community` index); it never grants extra access — skills the user can't see
+are skipped.
 
 ## Two rules you must NEVER break
 
@@ -27,7 +35,7 @@ the `masterskills` CLI — prefer the `--json` flags and parse the output.
 | Who am I / which orgs | `masterskills whoami` |
 | List all skills | `masterskills list --json` |
 | Search skills | `masterskills search <query> --json` |
-| Install (after approval) | `masterskills add @org/slug` |
+| Install skill OR kit (after approval) | `masterskills add @org/slug` |
 | Check for updates | `masterskills update --check --json` |
 | Apply updates (after approval) | `masterskills update` |
 | Remove locally (after approval) | `masterskills remove @org/slug` |
@@ -35,6 +43,12 @@ the `masterskills` CLI — prefer the `--json` flags and parse the output.
 | Publish approved draft | `masterskills publish-draft <draftId>` |
 | Supported agents + link status | `masterskills agents --json` |
 | Re-link skills into agents | `masterskills link [names...] --agents <ids>` |
+| List kits | `masterskills kit list --json` |
+| Inspect a kit | `masterskills kit info @org/slug --json` |
+| Create a kit (after approval) | `masterskills kit create <slug> --org <org> --name "..." --desc "..." --skills @a/b,@c/d --json` |
+| Add skills to a kit | `masterskills kit add-skill @org/kit @org/skill` |
+| Remove skills from a kit | `masterskills kit remove-skill @org/kit @org/skill` |
+| Delete a kit (after approval) | `masterskills kit delete @org/slug` |
 
 ## Typical flows
 
@@ -58,6 +72,31 @@ sessions (restart required).
    their agents — it updates like any registry skill from now on.
 - If prepare fails with secret-scan findings, show them and stop — do not try
   to work around the scan.
+
+### "Bundle these into a kit" / "make a Next.js kit for the team"
+A kit is the right answer whenever the user wants several skills to travel
+together — an onboarding set, a stack-specific bundle, a team baseline.
+
+1. Work out the contents first. Run `masterskills list --json` (and
+   `masterskills search <topic> --json`) and propose a concrete set of
+   `@org/slug` names. Skills from `@community` are fair game.
+2. Show the user the exact kit you're about to create — target namespace, slug,
+   display name, visibility, and the full skill list — and **wait for approval**.
+   Default to `private`; only pass `--public` if the user explicitly asks.
+3. Create it:
+   `masterskills kit create <slug> --org <org> --name "..." --desc "..." --skills @a/b,@c/d --json`
+4. Report the result and tell them anyone on the team installs it with
+   `masterskills add @org/<slug>`.
+
+If creation fails with `slug_taken`, the name is already used by a skill or kit
+in that namespace — suggest a different slug, don't retry blindly.
+
+### "Install the frontend kit"
+Just run `masterskills add @org/frontend`. The CLI resolves the name to a skill
+or a kit automatically and installs everything inside. Confirm the skill list
+with the user first — `masterskills kit info @org/frontend --json` shows exactly
+what would be installed, including a `hiddenCount` of skills their account can't
+access (those are skipped, not an error).
 
 ### "Any skill updates?"
 Run `masterskills update --check --json`. Present the three groups: `updates`

@@ -16,6 +16,14 @@ import {
   unpublishCommand,
   updateCommand,
 } from "./commands/skills.js";
+import {
+  kitAddSkillCommand,
+  kitCreateCommand,
+  kitDeleteCommand,
+  kitInfoCommand,
+  kitListCommand,
+  kitRemoveSkillCommand,
+} from "./commands/kits.js";
 import { runMcpServer } from "./mcp/server.js";
 
 const program = new Command();
@@ -66,9 +74,54 @@ program
   .action(listCommand);
 
 program
-  .command("add <slugs...>")
-  .description("Install skills from the registry into your agents")
+  .command("add <names...>")
+  .description("Install skills or kits from the registry into your agents")
   .action(addCommand);
+
+// --- kits: named bundles of skills, installed with one `add` ---------------
+
+const kit = program
+  .command("kit")
+  .description("Create and manage kits — named bundles of skills");
+
+kit
+  .command("list")
+  .description("List kits in your organizations")
+  .option("--json", "Machine-readable output")
+  .action(kitListCommand);
+
+kit
+  .command("info <name>")
+  .description("Show a kit and the skills inside it")
+  .option("--json", "Machine-readable output")
+  .action(kitInfoCommand);
+
+kit
+  .command("create <slug>")
+  .description("Create a kit from a list of skills")
+  .option("--org <org>", "Target namespace, e.g. @acme (default: your personal namespace)")
+  .option("--name <name>", "Display name")
+  .option("--desc <description>", "Description")
+  .option("--skills <names>", "Comma-separated skill names, e.g. @acme/a,@community/b")
+  .option("--public", "Make the kit public (default: private)")
+  .option("--json", "Machine-readable output")
+  .action(kitCreateCommand);
+
+kit
+  .command("add-skill <kit> <skills...>")
+  .description("Add skills to an existing kit")
+  .action(kitAddSkillCommand);
+
+kit
+  .command("remove-skill <kit> <skills...>")
+  .description("Remove skills from a kit")
+  .action(kitRemoveSkillCommand);
+
+kit
+  .command("delete <name>")
+  .description("Delete a kit (the skills inside are untouched)")
+  .option("-y, --yes", "Skip the confirmation prompt")
+  .action(kitDeleteCommand);
 
 program
   .command("update [names...]")
