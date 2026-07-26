@@ -18,6 +18,11 @@ import {
   writeSkillToStore,
   type LinkMode,
 } from "../lib/store.js";
+import {
+  fetchSkillFromGitHub,
+  fingerprintEntries,
+  type SkillSource,
+} from "../lib/source-install.js";
 import { packTarGz, parseTarGz, sha256Hex, type TarEntry } from "../lib/tar.js";
 import { loadState, saveState, type DraftRecord } from "../state.js";
 
@@ -50,6 +55,8 @@ export interface CatalogSkill {
 
 export interface SkillDetail extends Omit<CatalogSkill, "latestVersion" | "installCount"> {
   versions: { number: number; contentHash: string; sizeBytes: number; fileCount: number; createdAt: string; yankedAt: string | null }[];
+  /** Present on indexed skills — installed from the author's repo, not from us. */
+  source?: SkillSource | null;
 }
 
 export interface SyncResult {
@@ -90,7 +97,8 @@ export async function listSkills(query?: string): Promise<ListedSkill[]> {
   const params = query ? `?q=${encodeURIComponent(query)}` : "";
   const { skills } = await api<{ skills: CatalogSkill[] }>(`/skills${params}`);
   const { installs } = loadState();
-  return skills.map((skill) => {
+
+  const listed: ListedSkill[] = skills.map((skill) => {
     const installed = installs[skill.name];
     return {
       ...skill,
@@ -100,6 +108,34 @@ export async function listSkills(query?: string): Promise<ListedSkill[]> {
       installedAgents: Object.keys(installed?.agents ?? {}),
     };
   });
+
+  // Skills installed from outside the user's orgs (e.g. the public @community
+  // index) aren't in the catalog response — surface them so `list` always
+  // reflects what is actually on this machine.
+  const inCatalog = new Set(listed.map((skill) => skill.name));
+  for (const [name, record] of Object.entries(installs)) {
+    if (inCatalog.has(name)) continue;
+    const parsed = name.match(/^@([^/]+)\/(.+)$/);
+    if (!parsed) continue;
+    if (query && !name.toLowerCase().includes(query.toLowerCase())) continue;
+    listed.push({
+      name,
+      org: parsed[1]!,
+      slug: parsed[2]!,
+      displayName: parsed[2]!,
+      description: null,
+      visibility: "public",
+      isRequired: false,
+      latestVersion: null,
+      installCount: 0,
+      archivedAt: null,
+      installedVersion: record.version,
+      updateAvailable: false,
+      installedAgents: Object.keys(record.agents ?? {}),
+    });
+  }
+
+  return listed;
 }
 
 // ---------------------------------------------------------------- agents
@@ -163,29 +199,48 @@ export async function installSkills(inputs: string[]): Promise<InstallOutcome[]>
     const name = parseSkillName(input);
     const fullName = formatSkillName(name);
     const detail = await api<SkillDetail>(`/skills/${name.org}/${name.slug}`);
-    const latest = detail.versions.find((version) => !version.yankedAt);
-    if (!latest) throw new Error(`${fullName} has no installable version`);
 
-    const download = await api<{ url: string; contentHash: string }>(
-      `/skills/${name.org}/${name.slug}/versions/${latest.number}/download`,
-    );
-    const response = await fetch(download.url);
-    if (!response.ok) throw new Error(`Download failed for ${fullName} (HTTP ${response.status})`);
-    const tarball = Buffer.from(await response.arrayBuffer());
+    let entries: TarEntry[];
+    let version: number;
+    let contentHash: string;
 
-    // Never write unverified bytes: hash check BEFORE extraction.
-    if (sha256Hex(tarball) !== download.contentHash) {
-      throw new Error(`Integrity check failed for ${fullName} — download does not match the registry hash`);
+    if (detail.source) {
+      // Indexed skill: the registry only holds a pointer, so fetch the files
+      // from the author's repository directly.
+      entries = await fetchSkillFromGitHub(detail.source);
+      contentHash = fingerprintEntries(entries);
+      version = 1; // indexed sources aren't versioned by us
+    } else {
+      const latest = detail.versions.find((v) => !v.yankedAt);
+      if (!latest) throw new Error(`${fullName} has no installable version`);
+
+      const download = await api<{ url: string; contentHash: string }>(
+        `/skills/${name.org}/${name.slug}/versions/${latest.number}/download`,
+      );
+      const response = await fetch(download.url);
+      if (!response.ok) {
+        throw new Error(`Download failed for ${fullName} (HTTP ${response.status})`);
+      }
+      const tarball = Buffer.from(await response.arrayBuffer());
+
+      // Never write unverified bytes: hash check BEFORE extraction.
+      if (sha256Hex(tarball) !== download.contentHash) {
+        throw new Error(
+          `Integrity check failed for ${fullName} — download does not match the registry hash`,
+        );
+      }
+      entries = await parseTarGz(tarball);
+      contentHash = download.contentHash;
+      version = latest.number;
     }
 
-    const entries = await parseTarGz(tarball);
     const ownedBefore = !!loadState().installs[fullName];
     const storePath = writeSkillToStore(name, entries);
 
     const state = loadState();
     state.installs[fullName] = {
-      version: latest.number,
-      contentHash: download.contentHash,
+      version,
+      contentHash,
       installedAt: new Date().toISOString(),
       agents: state.installs[fullName]?.agents ?? {},
     };
@@ -195,7 +250,7 @@ export async function installSkills(inputs: string[]): Promise<InstallOutcome[]>
     // update implicitly. Re-linking both keeps it uniform and idempotent.
     const agentResults = linkToAgents(name, targets, ownedBefore);
 
-    outcomes.push({ name: fullName, version: latest.number, storePath, agents: agentResults });
+    outcomes.push({ name: fullName, version, storePath, agents: agentResults });
   }
 
   await reportSync();
