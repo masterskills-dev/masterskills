@@ -61,10 +61,13 @@ export async function loginCommand(options: LoginOptions = {}): Promise<void> {
         userEmail: result.user?.email,
         orgSlug: result.org?.slug,
       });
-      // Fetch the username (personal namespace) — the default publish target.
+      // Cache the default publish namespace. Org-only accounts have no
+      // username (personal namespaces retired) — the login org covers them.
       try {
-        const me = await api<{ user: { username: string } }>("/me");
-        saveConfig({ ...loadConfig(), username: me.user.username });
+        const me = await api<{ user: { username: string | null } }>("/me");
+        if (me.user.username) {
+          saveConfig({ ...loadConfig(), username: me.user.username });
+        }
       } catch {
         // Non-fatal: defaultOrg() resolves it lazily later.
       }

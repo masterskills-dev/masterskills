@@ -66,7 +66,8 @@ export interface SyncResult {
 }
 
 export interface Me {
-  user: { id: string; name: string; email: string; username: string };
+  /** `username` is null on org-only accounts (personal namespaces removed). */
+  user: { id: string; name: string; email: string; username: string | null };
   orgs: { slug: string; name: string; kind: string; plan: string; role: string }[];
   homeOrg: { slug: string } | null;
   device: { id: string; name: string; lastSeenAt: string | null };
@@ -76,13 +77,27 @@ export async function fetchMe(): Promise<Me> {
   return api<Me>("/me");
 }
 
-/** Default publish namespace = the user's personal org (username), npm-style. */
+/**
+ * Default publish namespace. Personal usernames are being retired server-side
+ * (org-only model), so the chain is: cached username → cached login org →
+ * the device's home org from /me → a clear error asking for --org.
+ */
 async function defaultOrg(): Promise<string> {
   const config = loadConfig();
   if (config.username) return config.username;
+  if (config.orgSlug) return config.orgSlug;
   const me = await fetchMe();
-  saveConfig({ ...config, username: me.user.username });
-  return me.user.username;
+  if (me.user.username) {
+    saveConfig({ ...config, username: me.user.username });
+    return me.user.username;
+  }
+  if (me.homeOrg?.slug) {
+    saveConfig({ ...config, orgSlug: me.homeOrg.slug });
+    return me.homeOrg.slug;
+  }
+  throw new Error(
+    "No default namespace for this account — pass --org @your-org explicitly.",
+  );
 }
 
 // ---------------------------------------------------------------- list / search

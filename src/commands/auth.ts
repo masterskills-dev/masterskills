@@ -1,11 +1,6 @@
-import { api, ApiError } from "../api/client.js";
+import { ApiError } from "../api/client.js";
 import { clearConfig, loadConfig } from "../config.js";
-
-interface MeResponse {
-  user: { id: string; name: string; email: string } | null;
-  org: { id: string; slug: string; name: string; plan: string } | null;
-  device: { id: string; name: string; lastSeenAt: string | null };
-}
+import { fetchMe } from "../core/skills.js";
 
 export async function logoutCommand(): Promise<void> {
   // TODO(v1): also revoke the device token server-side, not just locally.
@@ -22,10 +17,18 @@ export async function whoamiCommand(): Promise<void> {
   }
 
   try {
-    const me = await api<MeResponse>("/me");
-    if (me.user) console.log(`User:         ${me.user.name} <${me.user.email}>`);
-    if (me.org) console.log(`Organization: ${me.org.name} (${me.org.slug}) — ${me.org.plan} plan`);
-    console.log(`Device:       ${me.device.name}`);
+    const me = await fetchMe();
+    console.log(`User:    ${me.user.name} <${me.user.email}>`);
+    if (me.orgs.length > 0) {
+      const home = me.homeOrg?.slug;
+      for (const org of me.orgs) {
+        const marker = org.slug === home ? "  (this device)" : "";
+        console.log(`Org:     @${org.slug} — ${org.plan} plan, ${org.role}${marker}`);
+      }
+    } else {
+      console.log("Org:     none yet — create one at masterskills.dev");
+    }
+    console.log(`Device:  ${me.device.name}`);
   } catch (error) {
     if (error instanceof ApiError && error.status === 401) {
       console.error("This device's access is invalid or was revoked. Run: masterskills login");
