@@ -16,11 +16,13 @@ Then just talk to your agent:
 > "Do we have any skills for our booking flow?"
 > "Install the first two."
 > "Publish the skill I wrote in ./skills/content-rules to the team."
+> "Publish it into the ai-team group."
 > "Any skill updates?"
 
 ## How it works
 
 - Your team's skills live in a private registry at [masterskills.dev](https://masterskills.dev).
+- **Groups** bundle skills and people under one name — publish into `@acme/ai-team`, and the whole team installs the bundle with `masterskills add @acme/ai-team`. (`masterskills publish --group ai-team` files a skill into a group as it publishes; group members are managed in the web panel.)
 - This package ships a small CLI and an [MCP](https://modelcontextprotocol.io) server. The MCP server gives your agent six tools: `whoami`, `search_skills`, `install_skills`, `check_updates`, `prepare_publish`, `publish`.
 - Two rules the agent can never break: **nothing is written to disk without your approval, and nothing is published without your approval.**
 
