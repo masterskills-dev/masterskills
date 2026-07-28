@@ -98,8 +98,8 @@ kit
 
 kit
   .command("create <slug>")
-  .description("Create a kit from a list of skills")
-  .option("--org <org>", "Target namespace, e.g. @acme (default: your personal namespace)")
+  .description("Create a group/kit from a list of skills")
+  .option("--org <org>", "Target namespace, e.g. @acme (default: your device's organization)")
   .option("--name <name>", "Display name")
   .option("--desc <description>", "Description")
   .option("--skills <names>", "Comma-separated skill names, e.g. @acme/a,@community/b")
@@ -138,18 +138,20 @@ program
 program
   .command("publish [path]")
   .description("Publish a skill folder (interactive: shows the manifest, asks, publishes)")
-  .option("--org <org>", "Target namespace, e.g. @impark (default: your personal @username)")
+  .option("--org <org>", "Target namespace, e.g. @impark (default: your organization)")
   .option("--slug <slug>", "Registry slug (default: SKILL.md frontmatter name)")
   .option("--name <name>", "Display name")
   .option("--desc <description>", "Description")
   .option("--public", "Make the skill public (default: private)")
+  .option("--group <group>", "Add the published skill to this group (created if missing)")
+  .option("--kit <group>", "Alias of --group")
   .option("-y, --yes", "Skip the confirmation prompt")
   .action(publishCommand);
 
 program
   .command("prepare [path]")
   .description("Build a publish draft WITHOUT uploading (agent flow: show manifest, get approval)")
-  .option("--org <org>", "Target namespace, e.g. @impark (default: your personal @username)")
+  .option("--org <org>", "Target namespace, e.g. @impark (default: your organization)")
   .option("--slug <slug>", "Registry slug (default: SKILL.md frontmatter name)")
   .option("--name <name>", "Display name")
   .option("--desc <description>", "Description")

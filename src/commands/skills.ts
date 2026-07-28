@@ -1,6 +1,6 @@
 import { createInterface } from "node:readline/promises";
 import { ApiError } from "../api/client.js";
-import { findKit } from "../core/kits.js";
+import { createKit, findKit, updateKit } from "../core/kits.js";
 import {
   agentsStatus,
   installSkills,
@@ -255,6 +255,48 @@ interface PublishOptions {
   public?: boolean;
   yes?: boolean;
   json?: boolean;
+  /** Group (kit) to file the published skill into — created if missing. */
+  group?: string;
+  /** Alias of --group. */
+  kit?: string;
+}
+
+/**
+ * Files a freshly published skill into a group (kit) in the same org,
+ * creating the group when it doesn't exist yet. Best-effort by design: a
+ * group failure must never fail the publish that already succeeded.
+ */
+async function addPublishedSkillToGroup(
+  orgSlug: string,
+  groupInput: string,
+  skillName: string,
+): Promise<void> {
+  // Accept "ai-team" or "@org/ai-team"; the org half must match the skill's.
+  const match = groupInput.match(/^@?([a-z0-9][a-z0-9-]*)\/([a-z0-9][a-z0-9-]*)$/i);
+  const groupSlug = (match ? match[2]! : groupInput).toLowerCase();
+  const groupOrg = (match ? match[1]! : orgSlug).toLowerCase();
+  const groupName = `@${groupOrg}/${groupSlug}`;
+
+  try {
+    if (groupOrg !== orgSlug.toLowerCase()) {
+      throw new Error(
+        `Group ${groupName} is in a different namespace than the skill (@${orgSlug}).`,
+      );
+    }
+    const existing = await findKit(groupName);
+    if (existing) {
+      const next = [...new Set([...existing.skills.map((s) => s.name), skillName])];
+      await updateKit(groupName, { skills: next });
+    } else {
+      await createKit({ org: groupOrg, slug: groupSlug, skills: [skillName] });
+      console.log(`✓ Group ${groupName} didn't exist — created it.`);
+    }
+    console.log(`✓ Added to ${groupName} — install the bundle with: masterskills add ${groupName}`);
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    console.error(`⚠ Published, but could not add to ${groupName}: ${reason}`);
+    console.error(`  Add it manually with: masterskills kit add-skill ${groupName} ${skillName}`);
+  }
 }
 
 function printManifest(prepared: PrepareResult): void {
@@ -334,6 +376,11 @@ export async function publishCommand(
           .map((agent) => agent.id)
           .join(", ")} — it now updates like any registry skill.`,
       );
+    }
+
+    const group = options.group ?? options.kit;
+    if (group) {
+      await addPublishedSkillToGroup(prepared.org, group, prepared.name);
     }
   } catch (error) {
     friendlyError(error);
