@@ -9,9 +9,11 @@
  *   → unpublish (org archive) → list (must be gone)
  *
  * Agent model under test: central store at ~/.masterskills/skills/<slug>,
- * junction/symlinked into Claude Code, Codex and Cursor skill dirs (all three
- * faked inside the sandbox via MASTERSKILLS_*_DIR overrides — your real agent
- * dirs are never touched).
+ * junction/symlinked into Claude Code, Codex, Cursor and Gemini CLI skill
+ * dirs — all faked inside the sandbox. Claude/Codex/Cursor use the legacy
+ * MASTERSKILLS_*_DIR overrides, Gemini uses the generic
+ * MASTERSKILLS_AGENT_DIR_<ID> scheme, and MASTERSKILLS_AGENTS restricts the
+ * registry universe to the fakes so real agent dirs are never touched.
  *
  * Auth: MASTERSKILLS_TOKEN env if set; otherwise mints a device token via the
  * local docker postgres (dev convenience).
@@ -41,10 +43,11 @@ const AGENT_HOMES = {
   "claude-code": join(sandbox, "claude-home"),
   codex: join(sandbox, "codex-home"),
   cursor: join(sandbox, "cursor-home"),
+  "gemini-cli": join(sandbox, "gemini-home"),
 };
 const FIXTURE = join(sandbox, "fixture-skill");
 mkdirSync(HOME, { recursive: true });
-// Detection = base dir exists, so create all three fake agent homes.
+// Detection = base dir exists, so create every fake agent home.
 for (const dir of Object.values(AGENT_HOMES)) mkdirSync(dir, { recursive: true });
 
 const agentSkillPath = (agent, ...rest) => join(AGENT_HOMES[agent], "skills", LINK_FOLDER, ...rest);
@@ -91,6 +94,10 @@ const env = {
   MASTERSKILLS_CLAUDE_DIR: AGENT_HOMES["claude-code"],
   MASTERSKILLS_CODEX_DIR: AGENT_HOMES.codex,
   MASTERSKILLS_CURSOR_DIR: AGENT_HOMES.cursor,
+  MASTERSKILLS_AGENT_DIR_GEMINI_CLI: AGENT_HOMES["gemini-cli"],
+  // Isolation: without this, the full registry would detect (and link into)
+  // REAL agent dirs on the machine running the tests.
+  MASTERSKILLS_AGENTS: Object.keys(AGENT_HOMES).join(","),
 };
 
 function cli(...args) {
@@ -127,9 +134,9 @@ function writeFixture(version) {
 // ================================================================ sequence
 console.log(`\nLifecycle e2e against ${API_URL}\n`);
 
-// 0. agents — all three fakes detected
+// 0. agents — all fakes detected (incl. gemini-cli via the generic override)
 let r = cli("agents");
-check("0. agents: all three detected", r.code === 0 && ["claude-code", "codex", "cursor"].every((id) => r.out.includes(`${id}`) && !r.out.includes("not installed")), r.out);
+check("0. agents: all fakes detected", r.code === 0 && Object.keys(AGENT_HOMES).every((id) => r.out.includes(`${id}`)) && !r.out.includes("not installed"), r.out);
 
 // 0b. install — the bundled masterskills meta-skill goes to every agent
 r = cli("install");

@@ -178,13 +178,14 @@ program
 program
   .command("agents")
   .description("Show supported agents, detection status and linked skills")
+  .option("--all", "List every supported agent, not just the detected ones")
   .option("--json", "Machine-readable output")
   .action(agentsCommand);
 
 program
   .command("link [names...]")
   .description("Link installed skills into agent skill directories (default: all skills, all detected agents)")
-  .option("--agents <ids>", "Comma-separated agent ids (claude-code,codex,cursor)")
+  .option("--agents <ids>", "Comma-separated agent ids, e.g. claude-code,codex — see `masterskills agents --all`")
   .action(linkCommand);
 
 program

@@ -17,7 +17,11 @@ One npm package shipping:
 
 ## v1 scope guards
 
-- **Claude Code only.** Do not add Codex/Cursor/Gemini adapters yet ("coming soon").
+- **Agent coverage: registry-only.** `src/agents/registry.ts` ports the full skills.sh
+  (vercel-labs/skills) agent table — 70+ coding agents as pure data (detect dirs +
+  global skills dir). Supporting an agent means adding ONE entry there; never write
+  per-agent bespoke adapters/integrations beyond the store-link mechanism.
+  Universal-dir agents share `~/.agents/skills`; callers dedupe links by `skillsDir`.
 - No teams/policies, no git import, no public-skill mirroring, no SSO (see PRODUCT.md §4 YOK list).
 - Device auth: lifetime per-device token from the device flow; stored in `~/.masterskills/config.json` for v1 (OS keychain later).
 
