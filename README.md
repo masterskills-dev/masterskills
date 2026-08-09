@@ -3,7 +3,7 @@
 > Private skill registry for AI coding agents.
 > **Install once. Log in once. Never touch it again.**
 
-MasterSkills lets teams publish, permission and sync private [Agent Skills](https://agentskills.io) across AI coding agents — starting with Claude Code. After a one-time setup, everything happens through your agent in plain language: searching, installing, publishing and updating skills.
+MasterSkills lets teams publish, permission and sync private [Agent Skills](https://agentskills.io) across AI coding agents — Claude Code, Codex, Cursor, Gemini CLI and 70+ others (the full [skills.sh](https://skills.sh) agent set). Skills live once in a central store and are linked into every detected agent. After a one-time setup, everything happens through your agent in plain language: searching, installing, publishing and updating skills.
 
 ```bash
 # one-time setup
@@ -37,7 +37,7 @@ Then just talk to your agent:
 
 ## Status
 
-Early development. Claude Code is the first supported agent; Codex, Cursor and Gemini CLI are next.
+Early development. All coding agents in the registry are supported for skill installs (see `masterskills agents --all`); agents are auto-detected and the shared `.agents/skills` convention is covered by the `universal` target.
 
 ## License
 

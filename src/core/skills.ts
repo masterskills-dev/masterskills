@@ -195,8 +195,12 @@ function linkToAgents(
   const results: InstallOutcome["agents"] = [];
   const state = loadState();
   const record = state.installs[fullName];
+  // Universal-dir agents share one skills folder (~/.agents/skills) — link a
+  // given dir once and record the same outcome for every agent reading it.
+  const byDir = new Map<string, ReturnType<typeof linkSkillToAgent>>();
   for (const agent of agents) {
-    const outcome = linkSkillToAgent(name, agent, { owned });
+    const outcome = byDir.get(agent.skillsDir) ?? linkSkillToAgent(name, agent, { owned });
+    byDir.set(agent.skillsDir, outcome);
     results.push({ id: agent.id, mode: outcome.mode, reason: outcome.reason });
     if (record && outcome.mode !== "skipped") {
       record.agents = { ...record.agents, [agent.id]: outcome.mode };
@@ -341,8 +345,11 @@ export async function removeSkills(inputs: string[]): Promise<{ name: string; re
     const record = state.installs[fullName];
     const agentIds = record?.agents ? Object.keys(record.agents) : allAgents().map((a) => a.id);
     let removedAnything = false;
+    const seenDirs = new Set<string>();
     for (const agent of allAgents()) {
       if (!agentIds.includes(agent.id)) continue;
+      if (seenDirs.has(agent.skillsDir)) continue; // shared universal dir — already unlinked
+      seenDirs.add(agent.skillsDir);
       if (unlinkSkillFromAgent(name, agent)) removedAnything = true;
     }
     if (existsSync(storeSkillDir(name))) {
@@ -488,10 +495,13 @@ function maybeAdopt(
 
   const name = { org: draft.org, slug: draft.slug };
   writeSkillToStore(name, entries);
-  // Remove the original hand-made folder, then link every detected agent.
+  // Remove the original hand-made folder, then link every detected agent
+  // (shared universal dirs get linked once, recorded for each reader).
   rmSync(sourceDir, { recursive: true, force: true });
+  const byDir = new Map<string, ReturnType<typeof linkSkillToAgent>>();
   const results = detectAgents().map((agent) => {
-    const outcome = linkSkillToAgent(name, agent, { owned: true });
+    const outcome = byDir.get(agent.skillsDir) ?? linkSkillToAgent(name, agent, { owned: true });
+    byDir.set(agent.skillsDir, outcome);
     return { id: agent.id, mode: outcome.mode };
   });
 

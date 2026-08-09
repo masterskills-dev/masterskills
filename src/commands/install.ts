@@ -57,8 +57,9 @@ export async function installCommand(): Promise<void> {
 
   const agents = detectAgents();
   if (agents.length === 0) {
-    console.log("No supported agents detected (Claude Code, Codex, Cursor).");
-    console.log("Install one of them first, then re-run: masterskills install");
+    console.log("No supported coding agents detected on this machine.");
+    console.log("Install one (Claude Code, Codex, Cursor, Gemini CLI, …) and re-run: masterskills install");
+    console.log("Full list of supported agents: masterskills agents --all");
     process.exitCode = 1;
     return;
   }
@@ -66,8 +67,11 @@ export async function installCommand(): Promise<void> {
   for (const bundledSkill of readBundledSkills()) {
     const name = { org: BUNDLED_ORG, slug: bundledSkill.slug };
     writeSkillToStore(name, bundledSkill.entries);
+    // Universal-dir agents share ~/.agents/skills — link each dir only once.
+    const byDir = new Map<string, ReturnType<typeof linkSkillToAgent>>();
     for (const agent of agents) {
-      const outcome = linkSkillToAgent(name, agent, { owned: true });
+      const outcome = byDir.get(agent.skillsDir) ?? linkSkillToAgent(name, agent, { owned: true });
+      byDir.set(agent.skillsDir, outcome);
       if (outcome.mode === "skipped") {
         console.log(`- ${agent.displayName}: @${name.org}/${name.slug} SKIPPED (${outcome.reason})`);
       } else {

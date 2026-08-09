@@ -134,14 +134,29 @@ export async function addCommand(names: string[]): Promise<void> {
 
 // ---------------------------------------------------------------- agents
 
-export async function agentsCommand(options: { json?: boolean } = {}): Promise<void> {
+export async function agentsCommand(
+  options: { json?: boolean; all?: boolean } = {},
+): Promise<void> {
   const status = agentsStatus();
   if (options.json) return jsonOut(status);
-  for (const agent of status) {
+  // The registry covers 70+ agents — default view is what's on THIS machine.
+  const visible = options.all
+    ? status
+    : status.filter((agent) => agent.detected || agent.linkedSkills.length > 0);
+  for (const agent of visible) {
     console.log(`${agent.id}  (${agent.displayName}) — ${agent.detected ? "detected" : "not installed"}`);
     console.log(`  skills dir: ${agent.skillsDir}`);
     if (agent.linkedSkills.length > 0) {
       console.log(`  linked skills: ${agent.linkedSkills.join(", ")}`);
+    }
+  }
+  if (!options.all) {
+    if (visible.length === 0) {
+      console.log("No supported coding agents detected on this machine.");
+    }
+    const hidden = status.length - visible.length;
+    if (hidden > 0) {
+      console.log(`\n${hidden} more supported agent(s) — list everything with: masterskills agents --all`);
     }
   }
 }
