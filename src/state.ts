@@ -27,6 +27,8 @@ export interface DraftRecord {
   sourcePath: string;
   uploadUrl: string;
   nextVersion: number;
+  /** Org's package cap in bytes at prepare time (server-provided; absent on drafts from older servers). */
+  maxPackageBytes?: number;
   visibility: "private" | "public";
   manifest: PackageManifest;
   displayName?: string;

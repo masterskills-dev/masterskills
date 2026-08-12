@@ -316,7 +316,10 @@ async function addPublishedSkillToGroup(
 
 function printManifest(prepared: PrepareResult): void {
   console.log(`\n${prepared.name} → version ${prepared.nextVersion} (${prepared.visibility})`);
-  console.log(`${prepared.fileCount} files, ${formatSize(prepared.totalSize)}:`);
+  const limit = prepared.maxPackageBytes
+    ? ` (org limit ${formatSize(prepared.maxPackageBytes)})`
+    : "";
+  console.log(`${prepared.fileCount} files, ${formatSize(prepared.totalSize)}${limit}:`);
   for (const file of prepared.files) console.log(`  ${file}`);
   for (const excluded of prepared.excludedSecrets) {
     console.log(`  ⚠ ${excluded.path} — EXCLUDED (${excluded.reason})`);

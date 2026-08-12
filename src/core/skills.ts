@@ -375,6 +375,10 @@ export async function unpublishSkill(input: string): Promise<string> {
 
 // ---------------------------------------------------------------- publish (two-phase)
 
+function formatMb(bytes: number): string {
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
 export interface PrepareResult {
   draftId: string;
   name: string;
@@ -384,6 +388,8 @@ export interface PrepareResult {
   visibility: "private" | "public";
   fileCount: number;
   totalSize: number;
+  /** Org's package cap in bytes — comes from the server, never hardcoded here. */
+  maxPackageBytes?: number;
   files: string[];
   excludedSecrets: { path: string; reason: string }[];
 }
@@ -428,6 +434,7 @@ export async function preparePublish(
     org: string;
     uploadUrl: string;
     nextVersion: number;
+    maxPackageBytes?: number;
     warnings: string[];
   }>("/publish/prepare", {
     method: "POST",
@@ -442,6 +449,7 @@ export async function preparePublish(
     sourcePath: absolutePath,
     uploadUrl: prepared.uploadUrl,
     nextVersion: prepared.nextVersion,
+    maxPackageBytes: prepared.maxPackageBytes,
     visibility,
     manifest: built.manifest,
     displayName,
@@ -461,6 +469,7 @@ export async function preparePublish(
     visibility,
     fileCount: built.manifest.files.length,
     totalSize: built.manifest.totalSize,
+    maxPackageBytes: prepared.maxPackageBytes,
     files: built.manifest.files.map((file) => file.path),
     excludedSecrets: built.excludedSecrets,
   };
@@ -541,6 +550,15 @@ export async function publishDraft(draftId: string): Promise<PublishOutcome> {
     content: rebuilt.contents.get(file.path)!,
   }));
   const tarball = await packTarGz(entries.map((e) => ({ path: e.path, content: e.content })));
+
+  // Org's package cap, handed out by prepare — never hardcoded client-side.
+  // The server re-checks on complete regardless; this just fails fast.
+  if (draft.maxPackageBytes && tarball.length > draft.maxPackageBytes) {
+    throw new Error(
+      `Package is ${formatMb(tarball.length)} but @${draft.org} allows at most ` +
+        `${formatMb(draft.maxPackageBytes)} — trim the package and run prepare again`,
+    );
+  }
 
   const upload = await fetch(draft.uploadUrl, {
     method: "PUT",
