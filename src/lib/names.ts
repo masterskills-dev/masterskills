@@ -19,7 +19,7 @@ export function parseSkillName(input: string, defaultOrg?: string): SkillName {
     return { org: defaultOrg.replace(/^@/, ""), slug: input.trim() };
   }
   throw new Error(
-    `"${input}" is not a valid skill name — use the full form @org/slug (e.g. @impark/yayincilik-docs)`,
+    `"${input}" is not a valid skill name — use the full form @org/slug (e.g. @acme/frontend-docs)`,
   );
 }
 
@@ -29,7 +29,7 @@ export function formatSkillName(name: SkillName): string {
 
 /**
  * Agent skill dirs are flat (one folder level), so links flatten the
- * namespace: "@impark/docs" → "impark--docs". Double dash avoids ambiguity
+ * namespace: "@acme/docs" → "acme--docs". Double dash avoids ambiguity
  * with dashes inside org/slug.
  */
 export function linkFolderName(name: SkillName): string {

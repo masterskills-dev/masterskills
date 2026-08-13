@@ -6,15 +6,15 @@ description: Manage the user's private team/organization AI skills and kits (ski
 # MasterSkills — private skill registry
 
 MasterSkills is the user's private skill registry. Skills are named `@org/slug`
-(e.g. `@impark/yayincilik-docs`) and belong to organizations the user is a
+(e.g. `@acme/frontend-docs`) and belong to organizations the user is a
 member of. All operations go through the `masterskills` CLI — prefer the
 `--json` flags and parse the output.
 
 **Kits** (users may also say "group" or "bundle") bundle skills under one
-name — e.g. `@impark/ai-team` or `@impark/impark-docs`. Publish skills into a
+name — e.g. `@acme/ai-team` or `@acme/team-docs`. Publish skills into a
 kit and anyone on the team installs the whole bundle with one command. Kits
 share the `@org/slug` namespace with skills, so `masterskills add
-@impark/ai-team` works whether the name is a skill or a kit. Every active org
+@acme/ai-team` works whether the name is a skill or a kit. Every active org
 member sees every kit; a kit never grants extra access.
 
 ## Two rules you must NEVER break
@@ -106,8 +106,8 @@ A publish of a folder inside an agent's global skills dir is "adopted": the
 CLI moves it into the MasterSkills store and links it back, so it updates
 like any registry skill from now on. Mention this when it happens.
 
-### "Publish this skill to @impark"
-1. `masterskills prepare <folder> --org impark --slug <slug> --json`
+### "Publish this skill to @acme"
+1. `masterskills prepare <folder> --org acme --slug <slug> --json`
    - `--slug` defaults to the SKILL.md frontmatter `name`; ask the user if
      unclear. `--public` makes it public — default is private, keep it unless
      the user explicitly asks.

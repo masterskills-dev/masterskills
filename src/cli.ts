@@ -31,7 +31,7 @@ const program = new Command();
 program
   .name("masterskills")
   .description(
-    "Private skill registry for AI coding agents. Install once, log in once — your agent does the rest.",
+    "Private skill registry for AI coding agents. Install once, log in once â€” your agent does the rest.",
   )
   .version("0.1.0");
 
@@ -82,7 +82,7 @@ program
 
 const kit = program
   .command("kit")
-  .description("Create and manage kits — named bundles of skills");
+  .description("Create and manage kits â€” named bundles of skills");
 
 kit
   .command("list")
@@ -138,7 +138,7 @@ program
 program
   .command("publish [path]")
   .description("Publish a skill folder (interactive: shows the manifest, asks, publishes)")
-  .option("--org <org>", "Target namespace, e.g. @impark (default: your organization)")
+  .option("--org <org>", "Target namespace, e.g. @acme (default: your organization)")
   .option("--slug <slug>", "Registry slug (default: SKILL.md frontmatter name)")
   .option("--name <name>", "Display name")
   .option("--desc <description>", "Description")
@@ -151,7 +151,7 @@ program
 program
   .command("prepare [path]")
   .description("Build a publish draft WITHOUT uploading (agent flow: show manifest, get approval)")
-  .option("--org <org>", "Target namespace, e.g. @impark (default: your organization)")
+  .option("--org <org>", "Target namespace, e.g. @acme (default: your organization)")
   .option("--slug <slug>", "Registry slug (default: SKILL.md frontmatter name)")
   .option("--name <name>", "Display name")
   .option("--desc <description>", "Description")
@@ -185,7 +185,7 @@ program
 program
   .command("link [names...]")
   .description("Link installed skills into agent skill directories (default: all skills, all detected agents)")
-  .option("--agents <ids>", "Comma-separated agent ids, e.g. claude-code,codex — see `masterskills agents --all`")
+  .option("--agents <ids>", "Comma-separated agent ids, e.g. claude-code,codex â€” see `masterskills agents --all`")
   .action(linkCommand);
 
 program
