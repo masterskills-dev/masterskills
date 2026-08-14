@@ -149,7 +149,7 @@ for (const agent of Object.keys(AGENT_HOMES)) {
 r = cli("list");
 check("1. list works, skill not present yet", r.code === 0 && !r.out.includes(SLUG), r.out);
 
-// 2. publish v1 (explicit @org target — the impark scenario)
+// 2. publish v1 (explicit @org target — the team-org scenario)
 writeFixture(1);
 r = cli("publish", FIXTURE, "--yes", "--org", ORG, "--slug", SLUG);
 check("2. publish v1 succeeds", r.code === 0 && r.out.includes("Published") && r.out.includes(FULL) && r.out.includes("v1"), r.out);
