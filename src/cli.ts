@@ -1,4 +1,7 @@
 #!/usr/bin/env node
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { Command } from "commander";
 import { logoutCommand, whoamiCommand } from "./commands/auth.js";
 import { installCommand } from "./commands/install.js";
@@ -25,21 +28,27 @@ import {
   kitRemoveSkillCommand,
 } from "./commands/kits.js";
 import { runMcpServer } from "./mcp/server.js";
+import { maybeNotifyCliUpdate } from "./lib/update-check.js";
+
+// dist/cli.js → ../package.json (ships at the npm package root).
+const { version: VERSION } = JSON.parse(
+  readFileSync(join(fileURLToPath(import.meta.url), "..", "..", "package.json"), "utf8"),
+) as { version: string };
 
 const program = new Command();
 
 program
   .name("masterskills")
   .description(
-    "Private skill registry for AI coding agents. Install once, log in once â€” your agent does the rest.",
+    "Private skill registry for AI coding agents. Install once, log in once — your agent does the rest.",
   )
-  .version("0.1.0");
+  .version(VERSION);
 
 // --- one-time setup ---------------------------------------------------------
 
 program
   .command("install")
-  .description("Set up MasterSkills for your coding agents (registers the MCP server)")
+  .description("Set up MasterSkills for your coding agents (installs the bundled agent skill)")
   .action(installCommand);
 
 program
@@ -82,7 +91,7 @@ program
 
 const kit = program
   .command("kit")
-  .description("Create and manage kits â€” named bundles of skills");
+  .description("Create and manage kits — named bundles of skills");
 
 kit
   .command("list")
@@ -185,7 +194,7 @@ program
 program
   .command("link [names...]")
   .description("Link installed skills into agent skill directories (default: all skills, all detected agents)")
-  .option("--agents <ids>", "Comma-separated agent ids, e.g. claude-code,codex â€” see `masterskills agents --all`")
+  .option("--agents <ids>", "Comma-separated agent ids, e.g. claude-code,codex — see `masterskills agents --all`")
   .action(linkCommand);
 
 program
@@ -193,4 +202,8 @@ program
   .description("Run the MasterSkills MCP server over stdio (used by agents, not humans)")
   .action(runMcpServer);
 
-program.parseAsync();
+// The mcp command is a long-lived stdio server — no update chatter there.
+if (process.argv[2] !== "mcp") {
+  await maybeNotifyCliUpdate(VERSION);
+}
+await program.parseAsync();

@@ -28,6 +28,18 @@ member sees every kit; a kit never grants extra access.
    use `publish --yes`. For a batch, one approval covering the whole shown
    list is enough — per-skill re-asking is not required.
 
+## Keep the CLI current
+
+The CLI is installed globally (`npm install -g @masterskills/cli`) and checks
+for new versions once a day. When any command prints an update notice on
+stderr — `Update available: @masterskills/cli x.y.z → …` — tell the user,
+and after their OK update BEFORE continuing with the task:
+
+    npm install -g @masterskills/cli
+
+Also try this first when a command fails in a way these instructions do not
+explain — the installed CLI may simply be older than this document.
+
 ## Commands
 
 | Task | Command |

@@ -7,9 +7,13 @@ MasterSkills lets teams publish, permission and sync private [Agent Skills](http
 
 ```bash
 # one-time setup
-npx masterskills install   # registers the MasterSkills MCP server with your agent
-npx masterskills login     # authorizes this device (opens your browser once)
+npm install -g @masterskills/cli
+masterskills install   # teaches every detected coding agent to use MasterSkills
+masterskills login     # authorizes this device (opens your browser once)
 ```
+
+The CLI checks for new versions once a day and prints a notice when one is
+available — update any time with `npm install -g @masterskills/cli`.
 
 Then just talk to your agent:
 
@@ -30,7 +34,7 @@ Then just talk to your agent:
 
 | Command | What it does |
 |---|---|
-| `masterskills install` | Registers the MCP server with your coding agents |
+| `masterskills install` | Teaches every detected coding agent to use MasterSkills |
 | `masterskills login` | Authorizes this device (one browser round-trip) |
 | `masterskills whoami` | Shows signed-in user, organization and plan |
 | `masterskills logout` | Removes this device's credentials |
