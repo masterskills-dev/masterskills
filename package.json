@@ -1,6 +1,6 @@
 {
   "name": "@masterskills/cli",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "Private skill registry for AI coding agents. Install once, log in once — your agent does the rest.",
   "type": "module",
   "publishConfig": {
