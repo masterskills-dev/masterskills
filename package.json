@@ -7,7 +7,7 @@
     "access": "public"
   },
   "bin": {
-    "masterskills": "./dist/cli.js"
+    "masterskills": "dist/cli.js"
   },
   "files": [
     "dist",
