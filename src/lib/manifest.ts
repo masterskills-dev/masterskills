@@ -74,7 +74,8 @@ export function buildPackage(sourceDir: string): BuiltPackage {
 /** Minimal SKILL.md frontmatter reader (name/description) — no YAML dependency. */
 export function readFrontmatter(sourceDir: string): { name?: string; description?: string } {
   try {
-    const text = readFileSync(join(sourceDir, "SKILL.md"), "utf8");
+    // Strip a UTF-8 BOM — Windows editors add one and it would break ^---.
+    const text = readFileSync(join(sourceDir, "SKILL.md"), "utf8").replace(/^\uFEFF/, "");
     const match = text.match(/^---\r?\n([\s\S]*?)\r?\n---/);
     const frontmatter = match?.[1];
     if (!frontmatter) return {};

@@ -311,12 +311,19 @@ export async function linkSkills(
 
 // ---------------------------------------------------------------- sync / updates
 
+/** The server's sync contract: every reported name must be @org/slug. */
+const SYNC_NAME_REGEX = /^@[a-z0-9][a-z0-9-]*\/[a-z0-9][a-z0-9-]*$/;
+
 export async function reportSync(): Promise<SyncResult> {
   const { installs } = loadState();
-  const installed = Object.entries(installs).map(([name, record]) => ({
-    name,
-    version: record.version,
-  }));
+  // Filter defensively: a single malformed entry (hand-edited state, or a
+  // record written by an older CLI) must not 400 the whole sync forever.
+  const installed = Object.entries(installs)
+    .filter(([name]) => SYNC_NAME_REGEX.test(name))
+    .map(([name, record]) => ({
+      name,
+      version: record.version,
+    }));
   return api<SyncResult>("/sync", {
     method: "POST",
     body: JSON.stringify({ installed }),
